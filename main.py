@@ -10,7 +10,7 @@ class DadosCliente(BaseModel):
     status: str
 
 @app.get("/")
-def home():
+def healthz():
     return {"status": "Backend online"}
 
 @app.post("/api/registro")
