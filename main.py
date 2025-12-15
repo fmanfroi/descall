@@ -3,11 +3,15 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# Modelo de dados que o cliente vai enviar
+# Submodelo para o campo "mensagem"
+class Mensagem(BaseModel):
+    evento: str
+    timestamp: float
+
+# Modelo principal recebido do iOS
 class DadosCliente(BaseModel):
     origem: str
-    mensagem: str
-    status: str
+    mensagem: Mensagem
 
 @app.get("/")
 def healthz():
@@ -15,6 +19,13 @@ def healthz():
 
 @app.post("/api/registro")
 def receber_dados(dados: DadosCliente):
-    print(f"Recebido de {dados.origem}: {dados.mensagem}")
-    # Aqui você salvaria no banco de dados
-    return {"recebido": True, "mensagem": "Dados processados com sucesso"}
+    print("Origem:", dados.origem)
+    print("Evento:", dados.mensagem.evento)
+    print("Timestamp:", dados.mensagem.timestamp)
+
+    # Aqui você pode salvar no banco
+    return {
+        "recebido": True,
+        "origem": dados.origem,
+        "evento": dados.mensagem.evento
+    }
