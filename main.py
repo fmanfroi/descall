@@ -17,7 +17,7 @@ class DadosCliente(BaseModel):
 def healthz():
     return {"status": "Backend online"}
 
-@app.post("/api/registro")
+@app.post("/api/registrar")
 def receber_dados(dados: DadosCliente):
     print("Origem:", dados.origem)
     print("Evento:", dados.mensagem.evento)
