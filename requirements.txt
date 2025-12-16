@@ -3,3 +3,5 @@ uvicorn
 gunicorn
 jinja2
 pydantic
+sqlmodel
+psycopg2-binary
