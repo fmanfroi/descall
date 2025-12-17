@@ -1,1 +1,9 @@
 *.log
+banco_local.db
+__pycache__/
+*.pyc
+.env
+.vscode/
+.DS_Store
+venv/
+.envrc

@@ -5,70 +5,150 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agendador de Tarefas</title>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; padding-top: 50px; background-color: #f4f4f9; }
-        .card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
-        input[type="time"] { font-size: 1.5rem; padding: 10px; margin: 20px 0; border: 1px solid #ccc; border-radius: 5px; }
-        button { background-color: #007bff; color: white; border: none; padding: 10px 20px; font-size: 1rem; border-radius: 5px; cursor: pointer; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            padding-top: 50px; 
+            background-color: #f0f2f5; 
+        }
+        .card { 
+            background: white; 
+            padding: 2.5rem; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+            text-align: center; 
+            width: 350px;
+        }
+        h2 { color: #333; margin-bottom: 20px; }
+        
+        label { 
+            display: block; 
+            margin-top: 15px; 
+            font-weight: bold; 
+            color: #555; 
+            text-align: left;
+        }
+        
+        /* Estilizando os Inputs pedidos */
+        input[type="date"], 
+        input[type="time"], 
+        input[type="datetime-local"] { 
+            width: 100%;
+            padding: 10px; 
+            margin-top: 5px; 
+            border: 1px solid #ccc; 
+            border-radius: 6px; 
+            font-size: 1rem;
+            box-sizing: border-box; /* Garante que o padding não aumente a largura */
+        }
+
+        button { 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            padding: 12px 20px; 
+            font-size: 1rem; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            margin-top: 25px;
+            width: 100%;
+            transition: background 0.3s;
+        }
         button:hover { background-color: #0056b3; }
-        #status { margin-top: 20px; color: green; font-weight: bold; }
+        
+        #status { margin-top: 20px; font-weight: bold; min-height: 20px; }
+        
+        .separator { margin: 20px 0; border-top: 1px dashed #ccc; }
+        .small-text { font-size: 0.8rem; color: #777; margin-bottom: 5px;}
     </style>
 </head>
 <body>
 
     <div class="card">
         <h2>Agendar Execução</h2>
-        <p>Escolha o horário para o cliente rodar:</p>
+
+        <label>Data e Hora (Completo):</label>
+        <p class="small-text">Use este para selecionar tudo de uma vez</p>
+        <input type="datetime-local" id="inputCompleto">
+
+        <div class="separator"></div>
+
+        <p class="small-text">Ou use os campos separados abaixo:</p>
         
-        <input type="time" id="seletorTempo" required>
-        <br>
+        <label>Apenas Data:</label>
+        <input type="date" id="inputData">
+
+        <label>Apenas Hora:</label>
+        <input type="time" id="inputHora">
         
-        <button onclick="enviarAgendamento()">Agendar</button>
+        <button onclick="enviarAgendamento()">Salvar Agendamento</button>
         
         <p id="status"></p>
     </div>
 
     <script>
         async function enviarAgendamento() {
-            const inputTempo = document.getElementById('seletorTempo').value;
             const statusMsg = document.getElementById('status');
+            statusMsg.innerText = "Enviando...";
+            statusMsg.style.color = "blue";
 
-            if (!inputTempo) {
-                alert("Por favor, selecione um horário!");
+            let dataExecucao = "";
+            let hora = "";
+            let minuto = "";
+
+            // Lógica: Tenta pegar do input completo primeiro. 
+            // Se estiver vazio, tenta pegar dos inputs separados.
+            const inputCompleto = document.getElementById('inputCompleto').value;
+            const inputDataSep = document.getElementById('inputData').value;
+            const inputHoraSep = document.getElementById('inputHora').value;
+
+            if (inputCompleto) {
+                // O formato do datetime-local é: "YYYY-MM-DDTHH:MM"
+                const partes = inputCompleto.split('T');
+                dataExecucao = partes[0]; // YYYY-MM-DD
+                const tempo = partes[1].split(':');
+                hora = tempo[0];
+                minuto = tempo[1];
+            } else if (inputDataSep && inputHoraSep) {
+                dataExecucao = inputDataSep;
+                const tempo = inputHoraSep.split(':');
+                hora = tempo[0];
+                minuto = tempo[1];
+            } else {
+                statusMsg.innerText = "Por favor, preencha a data e hora!";
+                statusMsg.style.color = "red";
                 return;
             }
 
-            // O input time retorna algo como "14:30". Vamos separar.
-            const [hora, minuto] = inputTempo.split(':');
-
-            // Prepara os dados JSON
-            const dados = {
+            // Monta o JSON para enviar ao Python
+            const payload = {
                 hora: hora,
-                minuto: minuto
+                minuto: minuto,
+                data_execucao: dataExecucao
             };
 
             try {
-                // Faz a requisição POST para o seu backend
-                const resposta = await fetch('/api/agendar', {
+                const response = await fetch('/api/agendar', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(dados)
+                    body: JSON.stringify(payload)
                 });
 
-                const resultado = await resposta.json();
-                
-                if (resposta.ok) {
-                    statusMsg.innerText = resultado.mensagem;
+                const resultado = await response.json();
+
+                if (response.ok) {
+                    statusMsg.innerText = "Sucesso! Agendado para " + resultado.data + " às " + resultado.hora;
                     statusMsg.style.color = "green";
                 } else {
-                    statusMsg.innerText = "Erro ao agendar.";
+                    statusMsg.innerText = "Erro ao salvar.";
                     statusMsg.style.color = "red";
                 }
-
-            } catch (erro) {
-                console.error('Erro:', erro);
-                statusMsg.innerText = "Erro de conexão com o servidor.";
+            } catch (error) {
+                console.error(error);
+                statusMsg.innerText = "Erro de conexão.";
                 statusMsg.style.color = "red";
             }
         }
