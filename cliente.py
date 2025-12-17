@@ -1,12 +1,19 @@
 import requests
 import datetime
 import subprocess
-import sys
+import os
+from dotenv import load_dotenv
 
-URL = "https://descall.onrender.com"
-#SCRIPT_ALVO = "/home/fernando-manfroi/bater-ponto.sh"
-SCRIPT_ALVO = "/home/fernando-manfroi/ponto/cron.sh"
+# 1. Carrega as variáveis do arquivo .env para o sistema
+# O override=True garante que o .env local tenha prioridade
+load_dotenv(override=True)
 
+# 2. Agora você acessa como se fosse uma variável de ambiente do sistema
+DATABASE_URL = os.getenv("DATABASE_URL")
+AMBIENTE = os.getenv("AMBIENTE") # O segundo valor é o padrão se não achar nada
+
+URL = os.getenv("URL_API")
+SCRIPT_ALVO = os.getenv("SCRIPT_PONTO")
 
 def main():
     # 1. Consultar Agendamento
