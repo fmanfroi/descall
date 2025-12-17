@@ -5,6 +5,7 @@ from sqlmodel import SQLModel, Field, Session, select, create_engine
 from pydantic import BaseModel
 from datetime import datetime
 import os
+from dotenv import load_dotenv
 
 # --- BANCO DE DADOS ---
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./banco_local.db")
