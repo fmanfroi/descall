@@ -41,12 +41,10 @@ XPATHS = {
 
 def setup_driver():
     """Configura o Firefox (GeckoDriver)."""
-    firefox_options = Options()
-        # --- CAMINHO DO PERFIL ---    
-    caminho_perfil = "${FIREFOX_PROFILE_PATH}"
+    firefox_options = Options()        
     # Adiciona o argumento para usar esse perfil específico
     firefox_options.add_argument("-profile")
-    firefox_options.add_argument(caminho_perfil)    
+    firefox_options.add_argument(FIREFOX_PROFILE_PATH)    
 
     # --- 1. Configuração de Certificados (Equivalente a ignore-certificate-errors) ---
     firefox_options.accept_insecure_certs = True
@@ -69,7 +67,7 @@ def setup_driver():
     firefox_options.add_argument("--height=1080")
     
     # Para ativar o modo headless (sem interface), descomente a linha abaixo:
-    firefox_options.add_argument("--headless")
+    #firefox_options.add_argument("--headless")
 
     # --- 4. Inicialização do Driver ---
     service = Service(GeckoDriverManager().install())
@@ -205,7 +203,7 @@ def main():
         btn_final = wait.until(EC.element_to_be_clickable((By.XPATH, XPATHS["btn_final_registrar"])))
         
         # --- ATENÇÃO: LINHA DE CLIQUE REAL ---
-        btn_final.click()        
+        #btn_final.click()        
 
         print(">>> SUCESSO! Botão de Ponto clicado! <<<")
         

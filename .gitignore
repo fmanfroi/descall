@@ -8,3 +8,4 @@ __pycache__/
 venv/
 .envrc
 *.png
+perfil_firefox/

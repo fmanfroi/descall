@@ -35,14 +35,14 @@ source "$DIR_VENV"
 cd "$PROJETO_DIR"
 # Registra a data e hora de início no log
 echo "---------------------------------" >> "$ARQUIVO_LOG"
-echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Iniciando script" >> "$ARQUIVO_LOG"
+echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Iniciando registrar.sh" >> "$ARQUIVO_LOG"
 export DISPLAY=:0
 # Roda o script Python e salva o resultado (erros e prints) no arquivo de log
 
 python3 "$LOGIN_PYTHON" >> "$ARQUIVO_LOG" 2>&1
 
 # Registra o fim
-echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Fim da execução" >> "$ARQUIVO_LOG"
+echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Fim registrar.sh" >> "$ARQUIVO_LOG"
 
 # Desativa o ambiente virtual
 deactivate
