@@ -92,5 +92,7 @@ def confirmar(relatorio: DadosRelatorio):
     return {"status": "recebido"}
 
 @app.get("/health-check")
-async def health_check():
-    return {"status": "ok", "message": "Estou acordado!"}
+async def health_check():   
+    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")   
+    return {"status": "ok", "message": f"[{agora}] Resposta do health-check"}        
+     

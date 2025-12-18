@@ -1,9 +1,0 @@
-curl -X POST https://descall.onrender.com/api/registrar \
-  -H "Content-Type: application/json" \
-  -d '{
-    "origem": "ios",
-    "mensagem": {
-      "evento": "entrada_regiao",
-      "timestamp": 1734200000.123
-    }
-  }'
