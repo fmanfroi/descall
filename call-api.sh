@@ -1,20 +1,24 @@
 #!/bin/bash
 
-# --- CONFIGURAÇÕES ---
-DIRETORIO_DO_PROJETO="/home/fernando-manfroi/workspace/github/descall"
-ARQUIVO_PYTHON="cliente.py"
-ARQUIVO_LOG="$DIRETORIO_DO_PROJETO/log/execucao.log"
+PROJETO_DIR="/opt/descall"
+ARQUIVO_LOG="$PROJETO_DIR/log/execucao.log"
 
-source /home/fernando-manfroi/venv/bin/activate
+if [ -f "$PROJETO_DIR/.env" ]; then
+    export $(grep -v '^#' "$PROJETO_DIR/.env" | xargs)
+else
+    echo "ERRO: Arquivo .env não encontrado!" >> $LOG_FILE
+    exit 1
+fi
 
-cd "$DIRETORIO_DO_PROJETO"
+source "$DIR_VENV"
+
+cd "$PROJETO_DIR"
 
 echo "---------------------------------" >> "$ARQUIVO_LOG"
 echo "Iniciando script em: $(date)" >> "$ARQUIVO_LOG"
 
 # Roda o script Python e salva o resultado (erros e prints) no arquivo de log
-python3 "$ARQUIVO_PYTHON" >> "$ARQUIVO_LOG" 2>&1
-
+python3 "$SCRIPT_API_CLIENT" >> "$ARQUIVO_LOG" 2>&1
 
 echo "Fim da execução em: $(date)" >> "$ARQUIVO_LOG"
 deactivate

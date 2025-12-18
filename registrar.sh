@@ -1,11 +1,7 @@
 #!/bin/bash
 
-# --- CONFIGURAÇÃO ---
-PROJETO_DIR="/home/fernando-manfroi/workspace/github/descall"
-ARQUIVO_LOG="$PROJETO_DIR/execucao.log"
-
-# --- CARREGA O .ENV ---
-# Se o arquivo existir, carrega as variáveis
+PROJETO_DIR="/opt/descall"
+ARQUIVO_LOG="$PROJETO_DIR/log/execucao.log"
 if [ -f "$PROJETO_DIR/.env" ]; then
     export $(grep -v '^#' "$PROJETO_DIR/.env" | xargs)
 else
@@ -33,7 +29,7 @@ fi
 
 # --- EXECUÇÃO ---
 # Ativa o ambiente virtual (venv) Isso é crucial no Ubuntu 24 para não dar erro de módulo
-source venv/bin/activate
+source "$DIR_VENV"
 
 # Entra na pasta do projeto
 cd "$PROJETO_DIR"
@@ -43,7 +39,7 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Iniciando script" >> "$ARQUIVO_LOG"
 export DISPLAY=:0
 # Roda o script Python e salva o resultado (erros e prints) no arquivo de log
 
-#python3 "$LOGIN_PYTHON" >> "$ARQUIVO_LOG" 2>&1
+python3 "$LOGIN_PYTHON" >> "$ARQUIVO_LOG" 2>&1
 
 # Registra o fim
 echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Fim da execução" >> "$ARQUIVO_LOG"

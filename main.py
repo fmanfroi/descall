@@ -90,3 +90,7 @@ def confirmar(relatorio: DadosRelatorio):
             session.commit()
             print(f"Relatório recebido do Ubuntu: {relatorio.mensagem}")
     return {"status": "recebido"}
+
+@app.get("/health-check")
+async def health_check():
+    return {"status": "ok", "message": "Estou acordado!"}

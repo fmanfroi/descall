@@ -24,6 +24,7 @@ URL_API = os.getenv("URL_API")
 USUARIO = os.getenv("PONTO_USER")
 SENHA = os.getenv("PONTO_PASS")
 API_KEY = os.getenv("GOOGLE_API_KEY")
+FIREFOX_PROFILE_PATH = os.getenv("FIREFOX_PROFILE_PATH")
 
 # --- 2. SELETORES (XPATH) ---
 XPATHS = {
@@ -42,7 +43,7 @@ def setup_driver():
     """Configura o Firefox (GeckoDriver)."""
     firefox_options = Options()
         # --- CAMINHO DO PERFIL ---    
-    caminho_perfil = "/home/fernando-manfroi/snap/firefox/common/.mozilla/firefox/MvBBze4M.Perfil 1"    
+    caminho_perfil = "${FIREFOX_PROFILE_PATH}"
     # Adiciona o argumento para usar esse perfil específico
     firefox_options.add_argument("-profile")
     firefox_options.add_argument(caminho_perfil)    
@@ -118,7 +119,7 @@ def resolver_captcha(driver, wait):
 
 def tirar_print(driver, nome_arquivo):
     """Salva um screenshot para auditoria (Essencial em Headless)."""
-    nome = f"debug_{nome_arquivo}.png"
+    nome = f"log/debug_{nome_arquivo}.png"
     driver.save_screenshot(nome)
     print(f"[DEBUG] Screenshot salvo: {nome}")
 
@@ -181,7 +182,7 @@ def main():
             except TimeoutException:
                 print("❌ ERRO CRÍTICO: O login falhou ou o site demorou demais.")
                 print("Verifique se a senha está correta ou se houve captcha.")
-                driver.save_screenshot("erro_login_falhou.png") # Tira print do erro
+                tirar_print(driver, "xx_erro_login")                
                 driver.quit()
                 exit() # Encerra o script  
 
