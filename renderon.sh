@@ -13,4 +13,5 @@ fi
 # -w : Write-out (adiciona o código de status HTTP ao final da resposta para debug)
 RESPOSTA=$(curl -s -w " | Status HTTP: %{http_code}" $URL)
 
+DATA=$(date "+%Y-%m-%d %H:%M:%S")
 echo "[$DATA] Resposta: $RESPOSTA" >> $ARQUIVO_LOG
