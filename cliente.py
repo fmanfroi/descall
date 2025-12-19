@@ -9,31 +9,41 @@ from typing import Optional
 # Carrega variáveis de ambiente
 load_dotenv(override=True)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-AMBIENTE = os.getenv("AMBIENTE")
 URL = os.getenv("URL_API")
 SCRIPT_ALVO = os.getenv("SCRIPT_PONTO")
 
-# Logging básico
+# Logging básico (mantém configuração simples)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def post_json(session: requests.Session, path: str, payload: dict, timeout: int = 5) -> bool:
+def post_json(session: requests.Session, path: str, payload: dict, timeout: int = 6) -> tuple[bool, Optional[object]]:
+    """Faz POST e retorna (sucesso, json_ou_text).
+    Retorna (False, error_text) em falha.
+    """
+    if not URL:
+        logger.error("URL_API não configurada")
+        return False, "URL_API not set"
+
     url = f"{URL}{path}"
     try:
         resp = session.post(url, json=payload, timeout=timeout)
         resp.raise_for_status()
-        logger.debug("POST %s => %s", url, resp.text)
-        return True
+        try:
+            return True, resp.json()
+        except Exception:
+            return True, resp.text
     except Exception as e:
         logger.warning("Falha POST %s: %s", url, e)
-        return False
+        return False, str(e)
 
 
 def fetch_agendamento(session: requests.Session) -> Optional[dict]:
+    if not URL:
+        logger.error("URL_API não configurada")
+        return None
     try:
-        resp = session.get(f"{URL}/api/consultar", timeout=5)
+        resp = session.get(f"{URL}/api/consultar", timeout=6)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -41,7 +51,7 @@ def fetch_agendamento(session: requests.Session) -> Optional[dict]:
         return None
 
 
-def validar_horario(data: str, hora: str, minuto: str) -> (bool, str):
+def validar_horario(data: str, hora: str, minuto: str) -> tuple[bool, str]:
     """Retorna (ok, mensagem). ok=False quando horário é inválido ou passado."""
     try:
         h = int(str(hora))
@@ -56,7 +66,7 @@ def validar_horario(data: str, hora: str, minuto: str) -> (bool, str):
 
 
 def agendar_via_at(hora: str, minuto: str) -> bool:
-    """Agenda o `SCRIPT_ALVO` via at. Retorna True se agendado com sucesso."""
+    """Agenda o `SCRIPT_ALVO` via `at`. Retorna True se agendado com sucesso."""
     if not SCRIPT_ALVO:
         logger.error("Variável SCRIPT_PONTO não definida")
         return False
@@ -69,26 +79,30 @@ def agendar_via_at(hora: str, minuto: str) -> bool:
     try:
         proc = subprocess.run(comando, shell=True, capture_output=True, text=True)
         if proc.returncode == 0:
-            logger.info("Agendamento aceito pelo at: %s", proc.stderr.strip())
+            logger.info("Agendamento aceito pelo at: %s", (proc.stderr or proc.stdout).strip())
             return True
         else:
-            logger.error("Erro ao agendar via at: %s", proc.stderr.strip())
+            logger.error("Erro ao agendar via at: %s", (proc.stderr or proc.stdout).strip())
             return False
     except Exception as e:
         logger.exception("Erro crítico ao executar at: %s", e)
         return False
 
 
-def reportar_servidor(status: str, msgsucesso: Optional[str] = None) -> bool:
+def reportar_servidor(session: requests.Session, status: str, msgsucesso: Optional[str] = None) -> bool:
     """Envia status final para o endpoint /api/confirmar-execucao."""
-    session = requests.Session()
     payload = {"status": status}
     if msgsucesso is not None:
         payload["msgsucesso"] = msgsucesso
-    return post_json(session, "/api/confirmar-execucao", payload)
+    ok, _ = post_json(session, "/api/confirmar-execucao", payload)
+    return ok
 
 
-def main():
+def main() -> None:
+    if not URL:
+        logger.error("URL_API não definida. Ex: export URL_API=http://127.0.0.1:8000")
+        return
+
     session = requests.Session()
 
     dados = fetch_agendamento(session)
@@ -101,9 +115,6 @@ def main():
     ja_executou = dados.get("executou_sucesso")
     logger.info("Agendado: %s | Hoje: %s | Já feito? %s", data_agendada, hoje, ja_executou)
 
-    # A chamada GET em `fetch_agendamento()` já aciona o status `consultado` no servidor,
-    # portanto não precisamos postar manualmente aqui.
-
     if data_agendada != hoje or ja_executou:
         logger.info("Não é hora de executar ou já foi feito.")
         return
@@ -115,7 +126,7 @@ def main():
     if not ok:
         logger.warning("Validação falhou: %s", msg)
         post_json(session, "/api/agendar", {"status": "falha", "msgsucesso": msg})
-        reportar_servidor("falha", msg)
+        reportar_servidor(session, "falha", msg)
         return
 
     # cria/atualiza registro de agendamento usando o campo `data_execucao` esperado pela API
@@ -125,10 +136,10 @@ def main():
     if agendado_ok:
         # Atualiza status para `agendado` no endpoint de confirmação (servidor aplica update)
         post_json(session, "/api/confirmar-execucao", {"status": "agendado", "msgsucesso": "agendado no at"})
-        reportar_servidor("agendado", "agendado no at")
+        reportar_servidor(session, "agendado", "agendado no at")
     else:
         post_json(session, "/api/confirmar-execucao", {"status": "falha", "msgsucesso": "erro ao agendar"})
-        reportar_servidor("falha", "erro ao agendar")
+        reportar_servidor(session, "falha", "erro ao agendar")
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional
 import os
 from dotenv import load_dotenv
+import logging
 
 load_dotenv(override=True)
 
@@ -16,6 +17,8 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(DATABASE_URL)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 
 # --- MODELO DA TABELA (Atualizado para suportar status/msgsucesso) ---
@@ -160,7 +163,7 @@ def consultar():
 def listar_ultimas(limit: int = 20):
     """Retorna as últimas `limit` tarefas ordenadas por `data_solicitacao DESC`."""
     with Session(engine) as session:
-        stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
+        stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc()).limit(limit)
         tarefas = session.exec(stmt).all()
         if not tarefas:
             return []
@@ -177,7 +180,7 @@ def listar_ultimas(limit: int = 20):
                 "msgsucesso": t.msgsucesso,
             }
 
-        return [to_primitive(t) for t in tarefas][:limit]
+        return [to_primitive(t) for t in tarefas]
 
 
 # 3. API para CONFIRMAR EXECUÇÃO (Atualiza status/msgsucesso)
@@ -205,7 +208,7 @@ def confirmar(confirm: ConfirmacaoExecucao):
 
             session.add(tarefa)
             session.commit()
-            print(f"Relatório recebido: status={tarefa.status} msgsucesso={tarefa.msgsucesso}")
+            logger.info("Relatório recebido: status=%s msgsucesso=%s", tarefa.status, tarefa.msgsucesso)
             return {"status": "recebido", "tarefa": tarefa.dict()}
     return {"status": "recebido"}
 
