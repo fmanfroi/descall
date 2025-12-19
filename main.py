@@ -106,22 +106,78 @@ def agendar(dados: DadosAgendamento):
 
         session.add(tarefa)
         session.commit()
+        # Recarrega o objeto da sessão para garantir valores padrão/atualizados
+        try:
+            session.refresh(tarefa)
+        except Exception:
+            # fallback: re-query the record
+            tarefa = session.exec(
+                select(Configuracao).where(
+                    (Configuracao.data_para_execucao == dados.data_execucao)
+                    & (Configuracao.hora == dados.hora)
+                    & (Configuracao.minuto == dados.minuto)
+                )
+            ).first()
 
-        return {"status": tarefa.status, "data": dados.data_execucao, "hora": f"{dados.hora}:{dados.minuto}"}
+        # Retorna representação serializável do registro
+        return tarefa.dict() if tarefa is not None else {}
 
 
 # 2. API para CONSULTAR (O Ubuntu chama essa)
 @app.get("/api/consultar")
 def consultar():
     with Session(engine) as session:
-        # Retorna o registro mais recente (comportamento anterior que usava id=1)
+        # Retorna todos os registros ordenados por `data_solicitacao DESC` (útil para depuração)
         stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
-        tarefa = session.exec(stmt).first()
-        if tarefa:
-            tarefa.status = "consultado"
-            session.add(tarefa)
-            session.commit()
-        return tarefa
+        tarefas = session.exec(stmt).all()
+        if not tarefas:
+            return {}
+
+        # Marca o registro mais recente como consultado para compatibilidade
+        mais_recente = tarefas[0]
+        # (removed debug logs)
+        mais_recente.status = "consultado"
+        session.add(mais_recente)
+        session.commit()
+
+        # Retorna apenas a tarefa mais recente (convertida para tipos primitivos)
+        def to_primitive(t):
+            return {
+                "data_para_execucao": t.data_para_execucao,
+                "hora": t.hora,
+                "minuto": t.minuto,
+                "origem": t.origem,
+                "data_solicitacao": t.data_solicitacao.isoformat() if hasattr(t.data_solicitacao, "isoformat") else str(t.data_solicitacao),
+                "executou_sucesso": bool(t.executou_sucesso),
+                "status": t.status,
+                "msgsucesso": t.msgsucesso,
+            }
+
+        return to_primitive(mais_recente)
+
+
+@app.get("/api/listar-ultimas")
+def listar_ultimas(limit: int = 20):
+    """Retorna as últimas `limit` tarefas ordenadas por `data_solicitacao DESC`."""
+    with Session(engine) as session:
+        stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
+        tarefas = session.exec(stmt).all()
+        if not tarefas:
+            return []
+
+        def to_primitive(t):
+            return {
+                "data_para_execucao": t.data_para_execucao,
+                "hora": t.hora,
+                "minuto": t.minuto,
+                "origem": t.origem,
+                "data_solicitacao": t.data_solicitacao.isoformat() if hasattr(t.data_solicitacao, "isoformat") else str(t.data_solicitacao),
+                "executou_sucesso": bool(t.executou_sucesso),
+                "status": t.status,
+                "msgsucesso": t.msgsucesso,
+            }
+
+        return [to_primitive(t) for t in tarefas][:limit]
 
 
 # 3. API para CONFIRMAR EXECUÇÃO (Atualiza status/msgsucesso)
@@ -129,6 +185,7 @@ def consultar():
 def confirmar(confirm: ConfirmacaoExecucao):
     with Session(engine) as session:
         # Atualiza o registro mais recente (mesma abordagem de consultar)
+        # Seleciona pelo registro mais recentemente solicitado (consistente com /api/consultar)
         stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
         tarefa = session.exec(stmt).first()
         if tarefa:
@@ -149,6 +206,7 @@ def confirmar(confirm: ConfirmacaoExecucao):
             session.add(tarefa)
             session.commit()
             print(f"Relatório recebido: status={tarefa.status} msgsucesso={tarefa.msgsucesso}")
+            return {"status": "recebido", "tarefa": tarefa.dict()}
     return {"status": "recebido"}
 
 

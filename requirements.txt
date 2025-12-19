@@ -4,5 +4,7 @@ gunicorn
 jinja2
 pydantic
 sqlmodel
+sqlalchemy
 psycopg2-binary
 python-dotenv
+
