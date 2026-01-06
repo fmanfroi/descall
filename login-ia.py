@@ -42,7 +42,9 @@ XPATHS = {
     "input_captcha": "//input[contains(@formcontrolname, 'captcha') or contains(@placeholder, '(Captcha)')]",
     "btn_login": "//button[normalize-space()='ACESSAR']",
     "menu_frequencia": "//a[@href='#/frequencia-ponto']",
-    "submenu_registrar": "//a[@href='#/frequencia-ponto/registrar-ponto']",
+    # O item de "Registrar" pode ser um <a> ou um <button> dependendo da versão do UI.
+    # Aceita tanto o link antigo quanto o botão verde visível na página.
+    "submenu_registrar": "//a[@href='#/frequencia-ponto/registrar-ponto'] | //button[contains(normalize-space(.), 'Registrar Frequência')]",
     # Botão final verde de registrar
     "btn_final_registrar": "//button[contains(@class, 'btn-success') and contains(., 'Registrar Frequência')]" 
 }
@@ -299,11 +301,40 @@ def run_once() -> bool:
         time.sleep(2)
 
         # 6. Navegação: Registrar Ponto
-        submenu = wait.until(EC.element_to_be_clickable((By.XPATH, XPATHS["submenu_registrar"])))
-        driver.execute_script("arguments[0].click();", submenu)
-        logger.info("Submenu 'Registrar' acessado.")
-        time.sleep(3)
-        tirar_print(driver, "03_tela_registro")
+        try:
+            submenu = wait.until(EC.element_to_be_clickable((By.XPATH, XPATHS["submenu_registrar"])))
+            driver.execute_script("arguments[0].click();", submenu)
+            logger.info("Submenu 'Registrar' acessado.")
+            time.sleep(3)
+            tirar_print(driver, "03_tela_registro")
+        except TimeoutException:
+            # Diagnóstico: salvar screenshot, page_source e listar candidatos
+            tirar_print(driver, "xx_submenu_timeout")
+            log_dir = Path("log")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                with open(log_dir / "page_after_menu.html", "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+            except Exception:
+                logger.exception("Falha ao gravar page_after_menu.html")
+
+            try:
+                candidates = driver.find_elements(By.XPATH, "//a|//button|//li")
+                with open(log_dir / "candidates.txt", "w", encoding="utf-8") as f:
+                    for e in candidates:
+                        try:
+                            href = e.get_attribute('href') or ''
+                            cls = e.get_attribute('class') or ''
+                            txt = (e.text or '').strip().replace('\n', ' ')
+                            f.write(f"TAG={e.tag_name} TEXT={txt} HREF={href} CLASS={cls}\n")
+                        except Exception:
+                            continue
+            except Exception:
+                logger.exception("Falha ao listar elementos candidatos")
+
+            logger.exception("Submenu 'Registrar' não encontrado — dumps salvos em log/")
+            # Re-raise so existing error handling takes over (retry, report, etc.)
+            raise
 
         # 7. AÇÃO FINAL: Registrar
         logger.info("Procurando botão final de registro...")
@@ -311,8 +342,8 @@ def run_once() -> bool:
 
         # --- ATENÇÃO: LINHA DE CLIQUE REAL ---
         btn_final.click()
-        # logger.info(">>> btn_final.click() <<<")
-        logger.info(">>> Botão de Ponto clicado (execução iniciada) <<<")
+        #logger.info(">>> btn_final.click() <<<")
+        logger.info(">>> Botão de Ponto clicado <<<")
 
         time.sleep(5)
         tirar_print(driver, "04_final_resultado")
