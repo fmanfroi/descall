@@ -49,6 +49,9 @@ XPATHS = {
     "btn_final_registrar": "//button[contains(@class, 'btn-success') and contains(., 'Registrar Frequência')]" 
 }
 
+# Shared requests session and helper (similar to cliente.py)
+_session = requests.Session()
+
 def setup_driver():
     """Configura o Firefox (GeckoDriver)."""
     firefox_options = Options()        
@@ -88,6 +91,26 @@ def setup_driver():
     service = Service(GeckoDriverManager().install())
 
     return webdriver.Firefox(service=service, options=firefox_options)
+
+def post_json(session: requests.Session, path: str, payload: dict, timeout: int = 6) -> tuple[bool, object]:
+    """Faz POST e retorna (sucesso, json_ou_text).
+    Retorna (False, error_text) em falha.
+    """
+    if not URL_API:
+        logger.error("URL_API não configurada")
+        return False, "URL_API not set"
+
+    url = f"{URL_API}{path}"
+    try:
+        resp = session.post(url, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        try:
+            return True, resp.json()
+        except Exception:
+            return True, resp.text
+    except Exception as e:
+        logger.warning("Falha POST %s: %s", url, e)
+        return False, str(e)
 
 def resolver_captcha(driver, wait):
     """Localiza, baixa e resolve o CAPTCHA usando Gemini."""
@@ -135,7 +158,9 @@ def tirar_print(driver, nome_arquivo):
     """Salva um screenshot para auditoria (Essencial em Headless)."""
     log_dir = Path("log")
     log_dir.mkdir(parents=True, exist_ok=True)
-    nome = log_dir / f"debug_{nome_arquivo}.png"
+    # Prefixa o arquivo com timestamp ano_mes_dia_hora_minuto atual
+    ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
+    nome = log_dir / f"{ts}_{nome_arquivo}.png"
     try:
         driver.save_screenshot(str(nome))
         logger.debug("Screenshot salvo: %s", nome)
@@ -208,25 +233,19 @@ def extrair_linha_hoje(driver):
     return None
 
 def reportar_servidor(status, msgsucesso=None, sucesso: bool = None):
-    """Reporta o status para o servidor.
-    status: criado, consultado, agendado, executando, falha, sucesso
-    msgsucesso: mensagem livre (ex.: linha extraída)
-    sucesso: booleano opcional indicando sucesso final
+    """Reporta o status para o servidor usando o helper `post_json`.
+    Mantém a mesma assinatura para compatibilidade com chamadas existentes.
     """
     payload = {"status": status}
     if msgsucesso is not None:
         payload["msgsucesso"] = msgsucesso
     if sucesso is not None:
         payload["sucesso"] = bool(sucesso)
-    try:
-        resp = requests.post(f"{URL_API}/api/confirmar-execucao", json=payload, timeout=5)
-        try:
-            resp.raise_for_status()
-            logger.info("Status atualizado no servidor: %s", status)
-        except Exception:
-            logger.warning("Servidor respondeu com erro: %s %s", resp.status_code, resp.text)
-    except Exception as e:
-        logger.exception("Falha ao avisar o servidor: %s", e)
+    ok, resp = post_json(_session, "/api/confirmar-execucao", payload)
+    if ok:
+        logger.info("Status atualizado no servidor: %s", status)
+    else:
+        logger.warning("Falha ao atualizar status no servidor: %s", resp)
 
 def run_once() -> bool:
     """Executa todo o fluxo de registrar ponto uma vez.

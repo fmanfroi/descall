@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(mes
 logger = logging.getLogger(__name__)
 
 
-def post_json(session: requests.Session, path: str, payload: dict, timeout: int = 6) -> tuple[bool, Optional[object]]:
+def post_json(session: requests.Session, path: str, payload: dict, timeout: int = 16) -> tuple[bool, Optional[object]]:
     """Faz POST e retorna (sucesso, json_ou_text).
     Retorna (False, error_text) em falha.
     """
@@ -43,7 +43,7 @@ def fetch_agendamento(session: requests.Session) -> Optional[dict]:
         logger.error("URL_API não configurada")
         return None
     try:
-        resp = session.get(f"{URL}/api/consultar", timeout=6)
+        resp = session.get(f"{URL}/api/consultar", timeout=16)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
