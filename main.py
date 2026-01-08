@@ -16,7 +16,14 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./banco_local.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,      # testa se a conexão ainda está viva
+    pool_recycle=300,        # recicla conexões a cada 5 min
+    pool_size=5,             # ajuste conforme sua app
+    max_overflow=5,          # limite extra de conexões
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
