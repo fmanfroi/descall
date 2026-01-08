@@ -167,13 +167,30 @@
                 tbody.innerHTML = '';
                 data.forEach(item => {
                     const tr = document.createElement('tr');
+
+                    const solicitacaoRaw = item.data_solicitacao || '';
+                    let solicitacao = '';
+                    if (solicitacaoRaw) {
+                        const d = new Date(solicitacaoRaw);
+                        if (!isNaN(d)) {
+                            const dd = String(d.getDate()).padStart(2, '0');
+                            const mm = String(d.getMonth() + 1).padStart(2, '0');
+                            const yyyy = d.getFullYear();
+                            const hh = String(d.getHours()).padStart(2, '0');
+                            const min = String(d.getMinutes()).padStart(2, '0');
+                            solicitacao = dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min;
+                        } else {
+                            solicitacao = solicitacaoRaw;
+                        }
+                    }
+
                     tr.innerHTML = `
                         <td style="padding:8px; border-bottom:1px solid #eee">${item.data_para_execucao || ''}</td>
                         <td style="padding:8px; border-bottom:1px solid #eee">${(item.hora||'') + ':' + (item.minuto||'')}</td>
                         <td style="padding:8px; border-bottom:1px solid #eee">${item.status||''}</td>
                         <td style="padding:8px; border-bottom:1px solid #eee">${item.msgsucesso||''}</td>
                         <td style="padding:8px; border-bottom:1px solid #eee">${item.origem||''}</td>
-                        <td style="padding:8px; border-bottom:1px solid #eee">${item.data_solicitacao||''}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee">${solicitacao}</td>
                     `;
                     tbody.appendChild(tr);
                 });
