@@ -381,19 +381,7 @@ def run_once() -> bool:
             if linha_hoje:
                 logger.info("Linha de hoje: %s", linha_hoje)
             else:
-                logger.debug("Nenhuma marcação encontrada para hoje.")
-
-            # Grava também em arquivo para revisão posterior (opcional)
-            log_dir = Path("log")
-            log_dir.mkdir(parents=True, exist_ok=True)
-            out_file = log_dir / "linha_hoje_ponto.txt"
-            try:
-                with out_file.open("w", encoding="utf-8") as f:
-                    f.write((linha_hoje or "") + "\n")
-                logger.debug("Linha de hoje gravada em: %s", out_file)
-            except Exception as e_file:
-                logger.exception("Erro ao gravar arquivo da linha de hoje: %s", e_file)
-
+                logger.debug("Nenhuma marcação encontrada para hoje.") 
         except Exception as e:
             status = "falha"
             linha_hoje = str(e)
