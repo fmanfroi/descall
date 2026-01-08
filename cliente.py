@@ -3,6 +3,7 @@ import requests
 import datetime
 import subprocess
 import os
+import time
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -42,13 +43,19 @@ def fetch_agendamento(session: requests.Session) -> Optional[dict]:
     if not URL:
         logger.error("URL_API não configurada")
         return None
-    try:
-        resp = session.get(f"{URL}/api/consultar", timeout=16)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.error("Erro ao buscar agendamento: %s", e)
-        return None
+    attempts = 2
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = session.get(f"{URL}/api/consultar", timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error("Erro ao buscar agendamento: %s", e)
+            if attempt < attempts:
+                logger.info("Aguardando 60s antes de tentar novamente...")
+                time.sleep(60)
+            else:
+                return None
 
 
 def validar_horario(data: str, hora: str, minuto: str) -> tuple[bool, str]:
@@ -109,6 +116,12 @@ def main() -> None:
     if not dados:
         logger.info("Nenhuma configuração encontrada ou erro ao consultar")
         return
+
+    # Marca como consultado para indicar que o cliente recebeu a tarefa
+    try:
+        reportar_servidor(session, "consultado")
+    except Exception as e:
+        logger.warning("Falha ao marcar como consultado: %s", e)
 
     hoje = datetime.datetime.now().strftime("%Y-%m-%d")
     data_agendada = dados.get("data_para_execucao")

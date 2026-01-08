@@ -77,7 +77,7 @@ def home(request: Request):
 
 # 1. API para AGENDAR (Cria/Atualiza a tarefa)
 @app.post("/api/agendar")
-def agendar(dados: DadosAgendamento):
+def agendar(dados: DadosAgendamento, request: Request):
     with Session(engine) as session:
         # Busca por registro com a mesma data/hora/minuto
         stmt = select(Configuracao).where(
@@ -88,11 +88,29 @@ def agendar(dados: DadosAgendamento):
         tarefa = session.exec(stmt).first()
 
         if not tarefa:
+            # determina IP e porta do solicitante; respeita X-Forwarded-* quando presente
+            xf = request.headers.get("x-forwarded-for")
+            if xf:
+                ip = xf.split(",")[0].strip()
+            else:
+                ip = request.client.host
+
+            xf_port = request.headers.get("x-forwarded-port")
+            if xf_port:
+                port = xf_port.split(",")[0].strip()
+            else:
+                try:
+                    port = str(request.client.port)
+                except Exception:
+                    port = ""
+
+            origem_val = f"{ip}:{port}" if port else ip
+
             tarefa = Configuracao(
                 data_para_execucao=dados.data_execucao,
                 hora=dados.hora,
                 minuto=dados.minuto,
-                origem="web",
+                origem=origem_val,
             )
 
         # Atualiza os campos
@@ -130,20 +148,18 @@ def agendar(dados: DadosAgendamento):
 @app.get("/api/consultar")
 def consultar():
     with Session(engine) as session:
-        # Retorna todos os registros ordenados por `data_solicitacao DESC` (útil para depuração)
-        stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
-        tarefas = session.exec(stmt).all()
-        if not tarefas:
+        # Retorna apenas a tarefa mais recente cujo status seja 'criado'.
+        stmt = (
+            select(Configuracao)
+            .where(Configuracao.status == "criado")
+            .order_by(Configuracao.data_solicitacao.desc())
+        )
+        tarefa = session.exec(stmt).first()
+        if not tarefa:
             return {}
 
-        # Marca o registro mais recente como consultado para compatibilidade
-        mais_recente = tarefas[0]
-        # (removed debug logs)
-        mais_recente.status = "consultado"
-        session.add(mais_recente)
-        session.commit()
-
-        # Retorna apenas a tarefa mais recente (convertida para tipos primitivos)
+        # Retorna apenas a tarefa mais recente com status 'criado' sem alterá-la;
+        # quem consultou (cliente) deve marcar como 'consultado'.
         def to_primitive(t):
             return {
                 "data_para_execucao": t.data_para_execucao,
@@ -156,7 +172,7 @@ def consultar():
                 "msgsucesso": t.msgsucesso,
             }
 
-        return to_primitive(mais_recente)
+        return to_primitive(tarefa)
 
 
 @app.get("/api/listar-ultimas")
