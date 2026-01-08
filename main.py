@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import SQLModel, Field, Session, select, create_engine
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 import os
 from dotenv import load_dotenv
@@ -65,6 +65,31 @@ def criar_banco():
 
 app = FastAPI(on_startup=[criar_banco])
 templates = Jinja2Templates(directory="templates")
+
+
+def to_primitive(t: Configuracao) -> dict:
+    """Converte `Configuracao` para um dict serializável, ajustando
+    `data_solicitacao` para o fuso BR (-3h) na exibição.
+    """
+    ds = t.data_solicitacao
+    try:
+        adjusted = (ds - timedelta(hours=3)).isoformat()
+    except Exception:
+        try:
+            adjusted = ds.isoformat() if hasattr(ds, "isoformat") else str(ds)
+        except Exception:
+            adjusted = str(ds)
+
+    return {
+        "data_para_execucao": t.data_para_execucao,
+        "hora": t.hora,
+        "minuto": t.minuto,
+        "origem": t.origem,
+        "data_solicitacao": adjusted,
+        "executou_sucesso": bool(t.executou_sucesso),
+        "status": t.status,
+        "msgsucesso": t.msgsucesso,
+    }
 
 
 # --- ROTAS ---
@@ -140,8 +165,8 @@ def agendar(dados: DadosAgendamento, request: Request):
                 )
             ).first()
 
-        # Retorna representação serializável do registro
-        return tarefa.dict() if tarefa is not None else {}
+        # Retorna representação serializável do registro com ajuste de fuso (-3h BR)
+        return to_primitive(tarefa) if tarefa is not None else {}
 
 
 # 2. API para CONSULTAR (O Ubuntu chama essa)
@@ -160,18 +185,6 @@ def consultar():
 
         # Retorna apenas a tarefa mais recente com status 'criado' sem alterá-la;
         # quem consultou (cliente) deve marcar como 'consultado'.
-        def to_primitive(t):
-            return {
-                "data_para_execucao": t.data_para_execucao,
-                "hora": t.hora,
-                "minuto": t.minuto,
-                "origem": t.origem,
-                "data_solicitacao": t.data_solicitacao.isoformat() if hasattr(t.data_solicitacao, "isoformat") else str(t.data_solicitacao),
-                "executou_sucesso": bool(t.executou_sucesso),
-                "status": t.status,
-                "msgsucesso": t.msgsucesso,
-            }
-
         return to_primitive(tarefa)
 
 
@@ -183,18 +196,6 @@ def listar_ultimas(limit: int = 20):
         tarefas = session.exec(stmt).all()
         if not tarefas:
             return []
-
-        def to_primitive(t):
-            return {
-                "data_para_execucao": t.data_para_execucao,
-                "hora": t.hora,
-                "minuto": t.minuto,
-                "origem": t.origem,
-                "data_solicitacao": t.data_solicitacao.isoformat() if hasattr(t.data_solicitacao, "isoformat") else str(t.data_solicitacao),
-                "executou_sucesso": bool(t.executou_sucesso),
-                "status": t.status,
-                "msgsucesso": t.msgsucesso,
-            }
 
         return [to_primitive(t) for t in tarefas]
 
@@ -225,7 +226,7 @@ def confirmar(confirm: ConfirmacaoExecucao):
             session.add(tarefa)
             session.commit()
             logger.info("Relatório recebido: status=%s msgsucesso=%s", tarefa.status, tarefa.msgsucesso)
-            return {"status": "recebido", "tarefa": tarefa.dict()}
+            return {"status": "recebido", "tarefa": to_primitive(tarefa)}
     return {"status": "recebido"}
 
 

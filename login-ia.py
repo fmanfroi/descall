@@ -360,8 +360,8 @@ def run_once() -> bool:
         btn_final = wait.until(EC.element_to_be_clickable((By.XPATH, XPATHS["btn_final_registrar"])))
 
         # --- ATENÇÃO: LINHA DE CLIQUE REAL ---
-        #btn_final.click()
-        logger.info(">>> btn_final.click() <<<")
+        btn_final.click()
+        #logger.info(">>> btn_final.click() <<<")
         logger.info(">>> Botão de Ponto clicado <<<")
 
         time.sleep(5)
