@@ -239,5 +239,35 @@ def confirmar(confirm: ConfirmacaoExecucao):
 
 @app.get("/health-check")
 async def health_check():
-    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return {"status": "ok", "message": f"[{agora}] Resposta do health-check"}
+    agora_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with Session(engine) as session:
+            # Consulta o registro específico solicitado e retorna 'executou_sucesso'
+            stmt = select(Configuracao).where(
+                (Configuracao.data_para_execucao == '2025-12-19')
+                & (Configuracao.hora == '17')
+                & (Configuracao.minuto == '48')
+            )
+            registro = session.exec(stmt).first()
+            if registro is None:
+                executou_sucesso = None
+                registro_info = None
+            else:
+                executou_sucesso = bool(registro.executou_sucesso)
+                registro_info = to_primitive(registro)
+
+            return {
+                "status": "ok",
+                "message": f"[{agora_local}] Resposta do health-check",
+                "executou_sucesso": executou_sucesso,
+                "registro_encontrado": registro is not None,
+                "registro": registro_info,
+            }
+    except Exception as e:
+        logger.error(f"Erro no health-check: {str(e)}")
+        return {
+            "status": "warning",
+            "message": f"[{agora_local}] Health-check com erro ao consultar banco",
+            "executou_sucesso": None,
+            "error": str(e),
+        }

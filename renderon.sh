@@ -13,13 +13,28 @@ else
     echo "ERRO: Arquivo .env não encontrado!" >> $ARQUIVO_LOG
     exit 1
 fi
-echo "---------------------------------" >> "$ARQUIVO_LOG"
-echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Iniciando renderon.sh" >> "$ARQUIVO_LOG"
-# -s : Silent (não mostra barra de progresso)
-# -w : Write-out (adiciona o código de status HTTP ao final da resposta para debug)
-RESPOSTA=$(curl -s -w " | Status HTTP: %{http_code}" $URL_API/health-check)
+
+# Faz a requisição e captura a resposta JSON
+RESPOSTA_JSON=$(curl -s $URL_API/health-check)
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $URL_API/health-check)
+
+# Extrai os campos do JSON usando grep/sed ou jq se disponível
+if command -v jq &> /dev/null; then
+    STATUS=$(echo "$RESPOSTA_JSON" | jq -r '.status // "N/A"')
+    MESSAGE=$(echo "$RESPOSTA_JSON" | jq -r '.message // "N/A"')
+    EXECUTOU_SUCESSO=$(echo "$RESPOSTA_JSON" | jq -r 'if has("executou_sucesso") then (.executou_sucesso|tostring) else "N/A" end')
+else
+    # Fallback sem jq: usa grep e sed com tratamento melhorado
+    STATUS=$(echo "$RESPOSTA_JSON" | grep -o '"status":"[^"]*' | head -1 | cut -d'"' -f4)
+    MESSAGE=$(echo "$RESPOSTA_JSON" | grep -o '"message":"[^"]*' | head -1 | cut -d'"' -f4)
+    # executou_sucesso pode ser true/false/null (não está entre aspas). Captura true/false ou null
+    EXECUTOU_SUCESSO=$(echo "$RESPOSTA_JSON" | grep -o '"executou_sucesso"\s*:\s*\(true\|false\|null\)' | head -1 | sed -E 's/.*: *//')
+    
+    # Se algum campo não foi encontrado, trata com N/A
+    STATUS=${STATUS:-N/A}
+    MESSAGE=${MESSAGE:-N/A}
+    EXECUTOU_SUCESSO=${EXECUTOU_SUCESSO:-N/A}
+fi
 
 DATA=$(date "+%Y-%m-%d %H:%M:%S")
-echo "[$DATA] Resposta: $RESPOSTA" >> $ARQUIVO_LOG
-
-echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Fim renderon.sh" >> "$ARQUIVO_LOG"
+echo "[$DATA] HTTP:$HTTP_STATUS | Status:$STATUS | executou_sucesso:$EXECUTOU_SUCESSO | MSG:$MESSAGE" >> "$ARQUIVO_LOG"
