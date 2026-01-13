@@ -16,6 +16,9 @@ import google.generativeai as genai
 import re
 from pathlib import Path
 import datetime
+import shutil
+import glob
+import subprocess
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
@@ -23,6 +26,51 @@ logger = logging.getLogger(__name__)
 
 # Suprimir avisos de SSL inseguro
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Workaround: evita tracebacks ruidosos quando o Selenium tenta terminar
+# o processo do serviço e recebe PermissionError/OSError (ocorre em alguns ambientes).
+try:
+    import selenium.webdriver.common.service as _selenium_service
+    def _safe_terminate(self):
+        try:
+            stdin, stdout, stderr = (
+                getattr(self, 'process').stdin,
+                getattr(self, 'process').stdout,
+                getattr(self, 'process').stderr,
+            )
+            for stream in (stdin, stdout, stderr):
+                try:
+                    if stream:
+                        stream.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            proc = getattr(self, 'process', None)
+            if not proc:
+                return
+            try:
+                proc.terminate()
+            except PermissionError:
+                return
+            except OSError:
+                return
+
+            try:
+                proc.wait(60)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                except Exception:
+                    logger.warning("Falha ao enviar SIGKILL (ignorado)")
+        except Exception:
+            logger.debug("Erro ignorado ao tentar terminar service process")
+
+    _selenium_service.Service._terminate_process = _safe_terminate
+except Exception:
+    logger.debug("Não foi possível aplicar workaround de término do serviço")
 
 # --- 1. CONFIGURAÇÕES E CREDENCIAIS ---
 # Tente pegar das variáveis de ambiente do Linux, ou use o valor padrão (fallback)
@@ -88,7 +136,31 @@ def setup_driver():
         firefox_options.add_argument("--headless")
 
     # --- 4. Inicialização do Driver ---
-    service = Service(GeckoDriverManager().install())
+    # Prioriza: 1) variável de ambiente `GECKODRIVER_PATH` 2) binário no `PATH`
+    # 3) driver cacheado pelo webdriver-manager (~/.wdm) 4) fallback para baixar
+    gecko_path = os.getenv("GECKODRIVER_PATH")
+
+    if not gecko_path:
+        gecko_path = shutil.which("geckodriver")
+
+    if not gecko_path:
+        # procura cache do webdriver-manager em ~/.wdm/drivers/geckodriver
+        wdm_dir = Path.home() / ".wdm" / "drivers" / "geckodriver"
+        if wdm_dir.exists():
+            # seleciona a versão mais recente pelo nome do diretório
+            versions = [p for p in wdm_dir.iterdir() if p.is_dir()]
+            if versions:
+                latest = sorted(versions, key=lambda p: p.name, reverse=True)[0]
+                # procura o executável dentro da versão (pode estar em linux64/)
+                candidates = list(latest.rglob("geckodriver*"))
+                if candidates:
+                    gecko_path = str(candidates[0])
+
+    if gecko_path:
+        service = Service(gecko_path)
+    else:
+        # último recurso: deixa o webdriver-manager baixar e instalar
+        service = Service(GeckoDriverManager().install())
 
     return webdriver.Firefox(service=service, options=firefox_options)
 
@@ -156,16 +228,16 @@ def resolver_captcha(driver, wait):
 
 def tirar_print(driver, nome_arquivo):
     """Salva um screenshot para auditoria (Essencial em Headless)."""
-    log_dir = Path("log")
-    log_dir.mkdir(parents=True, exist_ok=True)
+    #log_dir = Path("log")
+    #log_dir.mkdir(parents=True, exist_ok=True)
     # Prefixa o arquivo com timestamp ano_mes_dia_hora_minuto atual
-    ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
-    nome = log_dir / f"{ts}_{nome_arquivo}.png"
-    try:
-        driver.save_screenshot(str(nome))
-        logger.debug("Screenshot salvo: %s", nome)
-    except Exception:
-        logger.exception("Falha ao salvar screenshot %s", nome)
+    #ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
+    #nome = log_dir / f"{ts}_{nome_arquivo}.png"
+    #try:
+    #    driver.save_screenshot(str(nome))
+    #    logger.debug("Screenshot salvo: %s", nome)
+    #except Exception:
+    #    logger.exception("Falha ao salvar screenshot %s", nome)
 
 
 def extrair_linhas_tabela(driver):
@@ -360,7 +432,7 @@ def run_once() -> bool:
         btn_final = wait.until(EC.element_to_be_clickable((By.XPATH, XPATHS["btn_final_registrar"])))
 
         # --- ATENÇÃO: LINHA DE CLIQUE REAL ---
-        btn_final.click()
+        #btn_final.click()
         #logger.info(">>> btn_final.click() <<<")
         logger.info(">>> Botão de Ponto clicado <<<")
 

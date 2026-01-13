@@ -18,12 +18,7 @@ source "$DIR_VENV"
 
 cd "$PROJETO_DIR"
 
-echo "---------------------------------" >> "$ARQUIVO_LOG"
-echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Iniciando call-api.sh" >> "$ARQUIVO_LOG"
-
-
 # Roda o script Python e salva o resultado (erros e prints) no arquivo de log
 python3 "$SCRIPT_API_CLIENT" >> "$ARQUIVO_LOG" 2>&1
 
-echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Fim call-api.sh" >> "$ARQUIVO_LOG"
 deactivate
