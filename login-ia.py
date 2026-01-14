@@ -12,6 +12,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.firefox import GeckoDriverManager
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options as ChromeOptions
 import google.generativeai as genai
 import re
 from pathlib import Path
@@ -135,50 +138,55 @@ def setup_driver():
     except Exception:
         firefox_options.add_argument("--headless")
 
-    # --- 4. Inicialização do Driver ---
-    # Prioriza: 1) variável de ambiente `GECKODRIVER_PATH` 
-    # 3) driver cacheado pelo webdriver-manager (~/.wdm) 4) fallback para baixar
-    gecko_path = os.getenv("GECKODRIVER_PATH")
-
-    if not gecko_path:
-        # procura cache do webdriver-manager em ~/.wdm/drivers/geckodriver
-        wdm_dir = Path.home() / ".wdm" / "drivers" / "geckodriver"
-        if wdm_dir.exists():
-            # seleciona a versão mais recente pelo nome do diretório
-            versions = [p for p in wdm_dir.iterdir() if p.is_dir()]
-            if versions:
-                latest = sorted(versions, key=lambda p: p.name, reverse=True)[0]
-                # procura o executável dentro da versão (pode estar em linux64/)
-                candidates = list(latest.rglob("geckodriver*"))
-                if candidates:
-                    gecko_path = str(candidates[0])
-
-    # Tenta usar o geckodriver informado ou o cache do webdriver-manager;
-    # se falhar, tenta instalar via webdriver-manager com retries.
-    service = None
-    if gecko_path:
+    # --- 4. Instalação do GeckoDriver com Retentativas ---
+    install_attempts = 3
+    for attempt in range(1, install_attempts + 1):
         try:
-            service = Service(gecko_path)
-        except Exception as e:
-            logger.warning("Erro ao instanciar GeckoDriver em %s: %s. Tentando instalar via webdriver-manager.", gecko_path, e)
+            installed = GeckoDriverManager().install()
+            service = Service(installed)
+            logger.info("Geckodriver instalado e Service criado a partir de %s (tentativa %d/%d).", installed, attempt, install_attempts)
+            return webdriver.Firefox(service=service, options=firefox_options)
+        except Exception as e2:
+            if attempt < install_attempts:
+                logger.warning("Falha ao instalar geckodriver (tentativa %d/%d): %s. Re-tentando...", attempt, install_attempts, e2)
+                time.sleep(10 * attempt)
+            else:
+                logger.exception("Falha final ao instalar geckodriver após %d tentativas: %s", install_attempts, e2)
+                raise
 
-    if service is None:
-        install_attempts = 3
-        for attempt in range(1, install_attempts + 1):
-            try:
-                installed = GeckoDriverManager().install()
-                service = Service(installed)
-                logger.info("Geckodriver instalado e Service criado a partir de %s (tentativa %d/%d).", installed, attempt, install_attempts)
-                break
-            except Exception as e2:
-                if attempt < install_attempts:
-                    logger.warning("Falha ao instalar geckodriver (tentativa %d/%d): %s. Re-tentando...", attempt, install_attempts, e2)
-                    time.sleep(10 * attempt)
-                else:
-                    logger.exception("Falha final ao instalar geckodriver após %d tentativas: %s", install_attempts, e2)
-                    raise
+    return None
 
-    return webdriver.Firefox(service=service, options=firefox_options)
+
+def setup_chrome_driver():
+    """Configura o Chrome (ChromeDriver) como fallback."""
+    chrome_options = ChromeOptions()
+    # Preferências básicas comparáveis às do Firefox
+    chrome_options.add_argument("--ignore-certificate-errors")
+    chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("--window-size=1920,1080")
+
+    try:
+        if HEADLESS and HEADLESS != "0":
+            chrome_options.add_argument("--headless")
+    except Exception:
+        chrome_options.add_argument("--headless")
+
+    install_attempts = 3
+    for attempt in range(1, install_attempts + 1):
+        try:
+            installed = ChromeDriverManager().install()
+            service = ChromeService(installed)
+            logger.info("Chromedriver instalado e Service criado a partir de %s (tentativa %d/%d).", installed, attempt, install_attempts)
+            return webdriver.Chrome(service=service, options=chrome_options)
+        except Exception as e2:
+            if attempt < install_attempts:
+                logger.warning("Falha ao instalar chromedriver (tentativa %d/%d): %s. Re-tentando...", attempt, install_attempts, e2)
+                time.sleep(10 * attempt)
+            else:
+                logger.exception("Falha final ao instalar chromedriver após %d tentativas: %s", install_attempts, e2)
+                raise
+
+    return None
 
 def post_json(session: requests.Session, path: str, payload: dict, timeout: int = 6) -> tuple[bool, object]:
     """Faz POST e retorna (sucesso, json_ou_text).
@@ -244,16 +252,16 @@ def resolver_captcha(driver, wait):
 
 def tirar_print(driver, nome_arquivo):
     """Salva um screenshot para auditoria (Essencial em Headless)."""
-    #log_dir = Path("log")
-    #log_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = Path("log")
+    log_dir.mkdir(parents=True, exist_ok=True)
     # Prefixa o arquivo com timestamp ano_mes_dia_hora_minuto atual
-    #ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
-    #nome = log_dir / f"{ts}_{nome_arquivo}.png"
-    #try:
-    #    driver.save_screenshot(str(nome))
-    #    logger.debug("Screenshot salvo: %s", nome)
-    #except Exception:
-    #    logger.exception("Falha ao salvar screenshot %s", nome)
+    ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
+    nome = log_dir / f"{ts}_{nome_arquivo}.png"
+    try:
+        driver.save_screenshot(str(nome))
+        logger.debug("Screenshot salvo: %s", nome)
+    except Exception:
+        logger.exception("Falha ao salvar screenshot %s", nome)
 
 
 def extrair_linhas_tabela(driver):
@@ -342,11 +350,16 @@ def run_once() -> bool:
     """
     driver = None
     try:
-        driver = setup_driver()
+        # Primeira tentativa: Firefox (padrão)
+        driver = setup_chrome_driver()
     except Exception as e:
-        logger.exception("Erro iniciando o WebDriver: %s", e)
-        reportar_servidor("falha", "erro iniciando webdriver", sucesso=False)
-        return False
+        logger.exception("Erro ao iniciar o WebDriver (Firefox): %s", e)
+        # Se o Firefox falhar, tentar duas tentativas com Chrome como fallback
+        driver = setup_driver()        
+        if not driver:
+            logger.exception("Erro iniciando o WebDriver: nenhum driver disponível após tentativas")
+            reportar_servidor("falha", "erro iniciando webdriver", sucesso=False)
+            return False
 
     wait = WebDriverWait(driver, 60)
     wait_check = WebDriverWait(driver, 10)
@@ -360,9 +373,7 @@ def run_once() -> bool:
             wait_check.until(EC.presence_of_element_located((By.XPATH, XPATHS["menu_frequencia"])))
             print("✅ Já está logado! Pulando etapa de autenticação.")
 
-        except TimeoutException:
-            # Se cair aqui, é porque o menu NÃO apareceu em 5 segundos.
-            print("ℹ️ Não está logado. Iniciando processo de login...")
+        except TimeoutException:          
             try:
                 # 1. Resolver Captcha
                 codigo_captcha = resolver_captcha(driver, wait)
@@ -449,7 +460,7 @@ def run_once() -> bool:
 
         # --- ATENÇÃO: LINHA DE CLIQUE REAL ---
         #btn_final.click()
-        #logger.info(">>> NÃO CLICOU NO !btn_final.click() <<<")
+        logger.info(">>> NÃO CLICOU NO !btn_final.click() <<<")
         logger.info(">>> Botão de Ponto clicado <<<")
 
         time.sleep(5)
