@@ -136,12 +136,9 @@ def setup_driver():
         firefox_options.add_argument("--headless")
 
     # --- 4. Inicialização do Driver ---
-    # Prioriza: 1) variável de ambiente `GECKODRIVER_PATH` 2) binário no `PATH`
+    # Prioriza: 1) variável de ambiente `GECKODRIVER_PATH` 
     # 3) driver cacheado pelo webdriver-manager (~/.wdm) 4) fallback para baixar
     gecko_path = os.getenv("GECKODRIVER_PATH")
-
-    if not gecko_path:
-        gecko_path = shutil.which("geckodriver")
 
     if not gecko_path:
         # procura cache do webdriver-manager em ~/.wdm/drivers/geckodriver
@@ -156,11 +153,30 @@ def setup_driver():
                 if candidates:
                     gecko_path = str(candidates[0])
 
+    # Tenta usar o geckodriver informado ou o cache do webdriver-manager;
+    # se falhar, tenta instalar via webdriver-manager com retries.
+    service = None
     if gecko_path:
-        service = Service(gecko_path)
-    else:
-        # último recurso: deixa o webdriver-manager baixar e instalar
-        service = Service(GeckoDriverManager().install())
+        try:
+            service = Service(gecko_path)
+        except Exception as e:
+            logger.warning("Erro ao instanciar GeckoDriver em %s: %s. Tentando instalar via webdriver-manager.", gecko_path, e)
+
+    if service is None:
+        install_attempts = 3
+        for attempt in range(1, install_attempts + 1):
+            try:
+                installed = GeckoDriverManager().install()
+                service = Service(installed)
+                logger.info("Geckodriver instalado e Service criado a partir de %s (tentativa %d/%d).", installed, attempt, install_attempts)
+                break
+            except Exception as e2:
+                if attempt < install_attempts:
+                    logger.warning("Falha ao instalar geckodriver (tentativa %d/%d): %s. Re-tentando...", attempt, install_attempts, e2)
+                    time.sleep(10 * attempt)
+                else:
+                    logger.exception("Falha final ao instalar geckodriver após %d tentativas: %s", install_attempts, e2)
+                    raise
 
     return webdriver.Firefox(service=service, options=firefox_options)
 
@@ -433,7 +449,7 @@ def run_once() -> bool:
 
         # --- ATENÇÃO: LINHA DE CLIQUE REAL ---
         #btn_final.click()
-        #logger.info(">>> btn_final.click() <<<")
+        #logger.info(">>> NÃO CLICOU NO !btn_final.click() <<<")
         logger.info(">>> Botão de Ponto clicado <<<")
 
         time.sleep(5)
