@@ -37,7 +37,7 @@ class Configuracao(SQLModel, table=True):
 
     # Metadados de Controle
     origem: str
-    data_solicitacao: datetime = Field(def  ault_factory=datetime.now)
+    data_solicitacao: datetime = Field(default_factory=datetime.now)
     executou_sucesso: bool = False
 
     # Novos campos para fluxo de status
@@ -119,37 +119,18 @@ def agendar(dados: DadosAgendamento, request: Request):
         )
         tarefa = session.exec(stmt).first()
 
-        if not tarefa:
-            # determina IP e porta do solicitante; respeita X-Forwarded-* quando presente
+        if not tarefa:            
             xf = request.headers.get("x-forwarded-for")
             if xf:
                 ip = xf.split(",")[0].strip()
             else:
-                ip = request.client.host if request.client else "unknown"
-
-            # Tenta obter porta em múltiplas formas
-            port = None
-            
-            # Primeiro tenta X-Forwarded-Port (proxy)
-            xf_port = request.headers.get("x-forwarded-port")
-            if xf_port:
-                port = xf_port.split(",")[0].strip()
-            # Depois tenta request.client.port
-            elif request.client and hasattr(request.client, 'port') and request.client.port:
-                port = str(request.client.port)
-            # Por último tenta extrair do header Host
-            else:
-                host_header = request.headers.get("host")
-                if host_header and ":" in host_header:
-                    port = host_header.split(":")[-1]
-
-            origem_val = f"{ip}:{port}" if port else ip
+                ip = request.client.host if request.client else "unknown"               
 
             tarefa = Configuracao(
                 data_para_execucao=dados.data_execucao,
                 hora=dados.hora,
                 minuto=dados.minuto,
-                origem=origem_val,
+                origem=ip,
             )
 
         # Atualiza os campos
@@ -237,7 +218,7 @@ def confirmar(confirm: ConfirmacaoExecucao):
                     tarefa.executou_sucesso = True
                 elif confirm.status == "falha":
                     tarefa.executou_sucesso = False
-            tarefa.data_solicitacao = datetime.now() if dados.status else tarefa.data_solicitacao
+            tarefa.data_solicitacao = datetime.now() 
             session.add(tarefa)
             session.commit()
             logger.info("Relatório recebido: status=%s msgsucesso=%s", tarefa.status, tarefa.msgsucesso)
