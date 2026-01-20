@@ -252,16 +252,16 @@ def resolver_captcha(driver, wait):
 
 def tirar_print(driver, nome_arquivo):
     """Salva um screenshot para auditoria (Essencial em Headless)."""
-    log_dir = Path("log")
-    log_dir.mkdir(parents=True, exist_ok=True)
+    #log_dir = Path("log")
+    #log_dir.mkdir(parents=True, exist_ok=True)
     # Prefixa o arquivo com timestamp ano_mes_dia_hora_minuto atual
-    ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
-    nome = log_dir / f"{ts}_{nome_arquivo}.png"
-    try:
-        driver.save_screenshot(str(nome))
-        logger.debug("Screenshot salvo: %s", nome)
-    except Exception:
-        logger.exception("Falha ao salvar screenshot %s", nome)
+    #ts = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
+    #nome = log_dir / f"{ts}_{nome_arquivo}.png"
+    #try:
+    #    driver.save_screenshot(str(nome))
+    #    logger.debug("Screenshot salvo: %s", nome)
+    #except Exception:
+    #    logger.exception("Falha ao salvar screenshot %s", nome)
 
 
 def extrair_linhas_tabela(driver):
@@ -351,11 +351,11 @@ def run_once() -> bool:
     driver = None
     try:
         # Primeira tentativa: Firefox (padrão)
-        driver = setup_chrome_driver()
+        driver = setup_driver()
     except Exception as e:
         logger.exception("Erro ao iniciar o WebDriver (Firefox): %s", e)
         # Se o Firefox falhar, tentar duas tentativas com Chrome como fallback
-        driver = setup_driver()        
+        driver = setup_chrome_driver()        
         if not driver:
             logger.exception("Erro iniciando o WebDriver: nenhum driver disponível após tentativas")
             reportar_servidor("falha", "erro iniciando webdriver", sucesso=False)
@@ -458,10 +458,10 @@ def run_once() -> bool:
         logger.info("Procurando botão final de registro...")
         btn_final = wait.until(EC.element_to_be_clickable((By.XPATH, XPATHS["btn_final_registrar"])))
 
-        # --- ATENÇÃO: LINHA DE CLIQUE REAL ---
-        #btn_final.click()
-        logger.info(">>> NÃO CLICOU NO !btn_final.click() <<<")
+        # --- ATENÇÃO: LINHA DE CLIQUE REAL ---        
+        btn_final.click()
         logger.info(">>> Botão de Ponto clicado <<<")
+        #logger.info(">>> NÃO CLICOU NO !btn_final.click() <<<")        
 
         time.sleep(5)
         tirar_print(driver, "04_final_resultado")

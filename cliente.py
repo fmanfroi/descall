@@ -114,7 +114,7 @@ def main() -> None:
 
     dados = fetch_agendamento(session)
     if not dados:
-        logger.info("Nenhuma configuração encontrada ou erro ao consultar")
+        logger.info("Nenhuma tarefa encontrada ou erro ao consultar")
         return
 
     # Marca como consultado para indicar que o cliente recebeu a tarefa
