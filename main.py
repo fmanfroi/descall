@@ -37,7 +37,7 @@ class Configuracao(SQLModel, table=True):
 
     # Metadados de Controle
     origem: str
-    data_solicitacao: datetime = Field(default_factory=datetime.now)
+    data_solicitacao: datetime = Field(def  ault_factory=datetime.now)
     executou_sucesso: bool = False
 
     # Novos campos para fluxo de status
@@ -125,16 +125,23 @@ def agendar(dados: DadosAgendamento, request: Request):
             if xf:
                 ip = xf.split(",")[0].strip()
             else:
-                ip = request.client.host
+                ip = request.client.host if request.client else "unknown"
 
+            # Tenta obter porta em múltiplas formas
+            port = None
+            
+            # Primeiro tenta X-Forwarded-Port (proxy)
             xf_port = request.headers.get("x-forwarded-port")
             if xf_port:
                 port = xf_port.split(",")[0].strip()
+            # Depois tenta request.client.port
+            elif request.client and hasattr(request.client, 'port') and request.client.port:
+                port = str(request.client.port)
+            # Por último tenta extrair do header Host
             else:
-                try:
-                    port = str(request.client.port)
-                except Exception:
-                    port = ""
+                host_header = request.headers.get("host")
+                if host_header and ":" in host_header:
+                    port = host_header.split(":")[-1]
 
             origem_val = f"{ip}:{port}" if port else ip
 
@@ -155,6 +162,7 @@ def agendar(dados: DadosAgendamento, request: Request):
 
         # Se quem chamou enviou status/msgsucesso, respeita; senão marca criado
         tarefa.status = dados.status or "criado"
+        tarefa.data_solicitacao = datetime.now() if dados.status else tarefa.data_solicitacao
         tarefa.msgsucesso = dados.msgsucesso
 
         session.add(tarefa)
@@ -229,7 +237,7 @@ def confirmar(confirm: ConfirmacaoExecucao):
                     tarefa.executou_sucesso = True
                 elif confirm.status == "falha":
                     tarefa.executou_sucesso = False
-
+            tarefa.data_solicitacao = datetime.now() if dados.status else tarefa.data_solicitacao
             session.add(tarefa)
             session.commit()
             logger.info("Relatório recebido: status=%s msgsucesso=%s", tarefa.status, tarefa.msgsucesso)
