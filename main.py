@@ -58,6 +58,9 @@ class ConfirmacaoExecucao(BaseModel):
     status: Optional[str] = None
     msgsucesso: Optional[str] = None
     sucesso: Optional[bool] = None
+    data_execucao: Optional[str] = None
+    hora: Optional[str] = None
+    minuto: Optional[str] = None
 
 
 class DadosRelatorio(BaseModel):
@@ -204,10 +207,18 @@ def listar_ultimas(limit: int = 20):
 @app.post("/api/confirmar-execucao")
 def confirmar(confirm: ConfirmacaoExecucao):
     with Session(engine) as session:
-        # Atualiza o registro mais recente (mesma abordagem de consultar)
-        # Seleciona pelo registro mais recentemente solicitado (consistente com /api/consultar)
-        stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
-        tarefa = session.exec(stmt).first()
+        # Se os campos identificadores foram fornecidos, busca o registro específico
+        if confirm.data_execucao and confirm.hora and confirm.minuto:
+            stmt = select(Configuracao).where(
+                (Configuracao.data_para_execucao == confirm.data_execucao)
+                & (Configuracao.hora == confirm.hora)
+                & (Configuracao.minuto == confirm.minuto)
+            )
+            tarefa = session.exec(stmt).first()
+        else:
+            # Fallback para o registro mais recentemente solicitado
+            stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
+            tarefa = session.exec(stmt).first()
         if tarefa:
             # Atualiza status/msg
             if confirm.status:
@@ -264,52 +275,3 @@ async def health_check():
             "executou_sucesso": None,
             "error": str(e),
         }
-
-# --- Rota 1: Renderiza o Template ---
-@app.get("/rastrear", response_class=HTMLResponse)
-async def pagina_rastreio(request: Request):
-    # 1. Lógica de IPs (Python)
-    x_forwarded_for = request.headers.get("x-forwarded-for")
-    ip_direto = request.client.host
-    
-    if x_forwarded_for:
-        caminho_completo = f"{x_forwarded_for}, {ip_direto}"
-        lista_ips_publicos = [ip.strip() for ip in caminho_completo.split(',')]
-    else:
-        lista_ips_publicos = [ip_direto]
-
-    # Prepara string para o JavaScript (ex: '["10.0.0.1"]')
-    lista_js = str(lista_ips_publicos).replace("'", '"')
-
-    # 2. Resposta com Template
-    # Em vez de escrever HTML aqui, dizemos qual ficheiro usar
-    # e passamos as variáveis num dicionário.
-    return templates.TemplateResponse("caminho-ip.html", {
-        "request": request,                 # Obrigatório no FastAPI Templates
-        "caminho_visual": lista_ips_publicos, # Para mostrar bonito no texto
-        "lista_js": lista_js                # Para o script funcionar
-    })
-
-# --- Rota 2: Coleta os Dados ---
-@app.post("/coletar")
-async def coletar_dados(dados: DadosCliente):
- # 1. Log no terminal (para nós vermos)
-    print("\n" + "="*40)
-    print("📡 RELATÓRIO RECEBIDO")
-    print(f"🌍 Caminho Público: {dados.caminho_publico}")
-    print(f"🏠 IP Rede Local:   {dados.ip_local_js}")
-    print("="*40 + "\n")
-    
-    # 2. Resposta em JSON para o Cliente (Browser)
-    # Aqui montamos a estrutura que o JavaScript vai receber de volta
-    resposta_json = {
-        "status": "sucesso",
-        "mensagem": "Dados recebidos e arquivados com sucesso.",
-        "confirmacao_dados": {
-            "ips_internet": dados.caminho_publico,
-            "ip_rede_interna": dados.ip_local_js
-        },
-        "servidor": "FastAPI v1.0"
-    }
-    
-    return resposta_json

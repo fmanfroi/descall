@@ -10,3 +10,4 @@ venv/
 *.png
 perfil_firefox/
 log/
+selenium/
