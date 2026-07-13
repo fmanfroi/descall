@@ -111,7 +111,7 @@ def to_primitive(t: Configuracao) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 
 # 1. API para AGENDAR (Cria/Atualiza a tarefa)
