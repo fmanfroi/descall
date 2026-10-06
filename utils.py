@@ -94,6 +94,9 @@ def validar_linha_hoje(linha_hoje):
 
     try:
         hoje = datetime.datetime.now()
+        data_linha = datetime.datetime.strptime(data_str, "%d/%m/%Y").date()
+        if data_linha != hoje.date():
+            return False
 
         if len(horarios) == 1:
             horario_valido = horarios[0]
@@ -113,7 +116,7 @@ def validar_linha_hoje(linha_hoje):
 
 
 def ja_batido_recente(linha_hoje) -> bool:
-    """Verifica se há marcações de ponto hoje nas últimas 1 hora (ou futuro próximo devido a fuso/relógio)."""
+    """Verifica marcações de hoje até 1h atrás ou até 10min no futuro."""
     if not linha_hoje or not isinstance(linha_hoje, str):
         return False
 
@@ -130,15 +133,19 @@ def ja_batido_recente(linha_hoje) -> bool:
         return False
 
     agora = datetime.datetime.now()
+    try:
+        if datetime.datetime.strptime(data_str, "%d/%m/%Y").date() != agora.date():
+            return False
+    except ValueError:
+        return False
     for h_str in horarios:
         try:
             h_dt = datetime.datetime.strptime(h_str, "%H:%M").time()
             dt_punch = datetime.datetime.combine(agora.date(), h_dt)
             diff = (agora - dt_punch).total_seconds()
-            # Se foi batido até 1h atrás (3600s) ou no futuro do mesmo dia (diff < 0)
-            if diff <= 3600:
+            # Não considerar qualquer horário futuro como registro recente.
+            if -600 <= diff <= 3600:
                 return True
         except Exception:
             continue
     return False
-

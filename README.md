@@ -59,3 +59,11 @@ do `at` pelo horário e pelo comando exato de `SCRIPT_PONTO`. Se não
 conseguir identificá-los com segurança, mantém o cancelamento pendente
 e registra o motivo no log. A proteção antes da execução aplica-se aos
 novos agendamentos.
+
+## Relatórios de falha
+
+Falhas na validação da linha do dia enviam o motivo completo em
+`msgsucesso`, incluindo a linha encontrada. A confirmação ao final das
+tentativas preserva o último motivo específico. A navegação ignora links
+ocultos dos menus de desktop/celular. O módulo Gemini usa `google-genai`;
+reinstale `requirements-automation.txt` ao atualizar o executor.

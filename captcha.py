@@ -1,11 +1,11 @@
 import base64
 import re
 import time
-import concurrent.futures
 from PIL import Image
 import io
 import pytesseract
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from config import API_KEY, ZHIPU_API_KEY
 from common import logger
@@ -40,44 +40,27 @@ def _try_gemini(image_bytes: bytes) -> str | None:
         logger.warning("GOOGLE_API_KEY não configurada; pulando Gemini")
         return None
 
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel("models/gemini-flash-latest")
-
     max_attempts = 2
     for attempt in range(1, max_attempts + 1):
         logger.info("Enviando imagem para Gemini (tentativa %d/%d)", attempt, max_attempts)
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(model.generate_content, [
-            {"mime_type": "image/png", "data": image_bytes},
-            "Retorne APENAS os caracteres alfanuméricos desta imagem. Sem espaços, sem texto extra."
-        ])
         try:
-            response = future.result(timeout=60)
-            texto = getattr(response, "text", "").strip()
-            if texto:
+            with genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=60000)) as client:
+                response = client.models.generate_content(
+                    model="gemini-flash-latest",
+                    contents=[
+                        types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                        "Retorne APENAS os caracteres alfanuméricos desta imagem. Sem espaços, sem texto extra.",
+                    ],
+                )
+            texto = re.sub(r'[^a-zA-Z0-9]', '', (response.text or '').strip())
+            if _tesseract_valid(texto):
                 logger.info("Gemini identificou captcha válido: %s", texto)
-                texto = re.sub(r'[^a-zA-Z0-9]', '', texto)               
-                try:
-                    executor.shutdown(wait=False)
-                except Exception:
-                    pass
-                return texto                
-            else:
-                logger.warning("Resposta vazia do Gemini (tentativa %d/%d)", attempt, max_attempts)
-        except concurrent.futures.TimeoutError:
-            logger.warning("Timeout de 60s atingido para Gemini (tentativa %d/%d)", attempt, max_attempts)
-            try:
-                future.cancel()
-            except Exception:
-                pass
+                return texto
+            logger.warning("Resposta do Gemini fora do formato esperado (tentativa %d/%d)", attempt, max_attempts)
         except Exception as e:
             logger.warning("Erro ao chamar Gemini (tentativa %d/%d): %s", attempt, max_attempts, e)
-        finally:
-            try:
-                executor.shutdown(wait=False)
-            except Exception:
-                pass
-        time.sleep(1)
+        if attempt < max_attempts:
+            time.sleep(1)
     return None
 
 

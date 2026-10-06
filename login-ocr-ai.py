@@ -5,7 +5,7 @@ import base64
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 from selenium.webdriver.support import expected_conditions as EC
 
 from common import logger
@@ -13,7 +13,19 @@ from config import URL_SITE, USUARIO, SENHA, REGISTER_ATTEMPTS, XPATHS
 from drivers import setup_driver, setup_chrome_driver
 from captcha import resolver_captcha
 from utils import tirar_print, extrair_linha_hoje, validar_linha_hoje, ja_batido_recente
-from reporting import reportar_servidor
+from reporting import reportar_servidor, limpar_ultima_falha, ultima_mensagem_falha
+
+
+def elemento_clicavel(driver, xpath):
+    """Ignora links ocultos dos menus duplicados de desktop/celular."""
+    elementos = driver.find_elements(By.XPATH, xpath)
+    for elemento in elementos:
+        try:
+            if elemento.is_displayed() and elemento.is_enabled():
+                return elemento
+        except StaleElementReferenceException:
+            continue
+    return False
 
 
 def run_once(use_ai=False) -> bool:
@@ -27,7 +39,12 @@ def run_once(use_ai=False) -> bool:
     except Exception as e:
         logger.exception("Erro ao iniciar o WebDriver (Firefox): %s", e)
         # Se o Firefox falhar, tentar duas tentativas com Chrome como fallback
-        driver = setup_chrome_driver()
+        try:
+            driver = setup_chrome_driver()
+        except Exception as erro_chrome:
+            logger.exception("Erro ao iniciar o WebDriver (Chrome): %s", erro_chrome)
+            reportar_servidor("falha", f"Erro iniciando webdriver: {erro_chrome}", sucesso=False)
+            return False
         if not driver:
             logger.exception("Erro iniciando o WebDriver: nenhum driver disponível após tentativas")
             reportar_servidor("falha", "erro iniciando webdriver", sucesso=False)
@@ -63,6 +80,7 @@ def run_once(use_ai=False) -> bool:
 
                 if not image_bytes:
                     logger.error("Não foi possível obter bytes da imagem do CAPTCHA")
+                    reportar_servidor("falha", "Não foi possível obter bytes da imagem do CAPTCHA", sucesso=False)
                     return False
 
                 # 2. Resolver Captcha
@@ -71,6 +89,7 @@ def run_once(use_ai=False) -> bool:
                     wait.until(EC.visibility_of_element_located((By.XPATH, XPATHS["input_captcha"]))).send_keys(codigo_captcha)
                 else:
                     logger.warning("Falha ao resolver captcha (ou falha no OCR)")
+                    reportar_servidor("falha", "Falha ao resolver captcha (ou falha no OCR)", sucesso=False)
                     return False
 
                 logger.info("Preenchendo credenciais...")
@@ -101,7 +120,7 @@ def run_once(use_ai=False) -> bool:
                 return False
 
         # 5. Navegação: Controle de Frequência
-        menu = wait.until(EC.presence_of_element_located((By.XPATH, XPATHS["menu_frequencia"])))
+        menu = wait.until(lambda d: elemento_clicavel(d, XPATHS["menu_frequencia"]))
         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", menu)
         time.sleep(1)
         driver.execute_script("arguments[0].click();", menu)
@@ -121,7 +140,7 @@ def run_once(use_ai=False) -> bool:
 
         # 6. Navegação: Registrar Ponto
         try:
-            submenu = wait.until(EC.presence_of_element_located((By.XPATH, XPATHS["submenu_registrar"])))
+            submenu = wait.until(lambda d: elemento_clicavel(d, XPATHS["submenu_registrar"]))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", submenu)
             time.sleep(1)
             driver.execute_script("arguments[0].click();", submenu)
@@ -154,16 +173,16 @@ def run_once(use_ai=False) -> bool:
                 logger.exception("Falha ao listar elementos candidatos")
 
             logger.exception("Submenu 'Registrar' não encontrado — dumps salvos em log/")
-            raise
+            raise TimeoutException("Submenu 'Registrar' não encontrado após acessar Controle de Frequência")
 
         # 7. AÇÃO FINAL: Registrar
         logger.info("Procurando botão final de registro...")
         btn_final = wait.until(EC.element_to_be_clickable((By.XPATH, XPATHS["btn_final_registrar"])))
         
-        btn_final.click()
-        logger.info(">>> Botão de Ponto clicado <<<")
+        #btn_final.click()
+        #logger.info(">>> Botão de Ponto clicado <<<")
 
-        # logger.info(">>> Botão de Ponto NÃO clicado <<<")
+        logger.info(">>> Botão de Ponto NÃO clicado <<<")
 
         time.sleep(15)  # Espera para o sistema processar o registro
         tirar_print(driver, "04_final_resultado")
@@ -171,8 +190,9 @@ def run_once(use_ai=False) -> bool:
         # 2. Reportar status final — extrair apenas a linha do dia de hoje
         status = "sucesso"
         linha_hoje = None
+        mensagem = None
         try:
-            menu = wait.until(EC.presence_of_element_located((By.XPATH, XPATHS["menu_frequencia"])))
+            menu = wait.until(lambda d: elemento_clicavel(d, XPATHS["menu_frequencia"]))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", menu)
             time.sleep(1)
             driver.execute_script("arguments[0].click();", menu)
@@ -184,22 +204,26 @@ def run_once(use_ai=False) -> bool:
                 if validar_linha_hoje(linha_hoje):
                     logger.info("Linha de hoje válida: %s", linha_hoje)
                     status = "sucesso"
+                    mensagem = linha_hoje
                 else:
-                    logger.warning("Linha de hoje encontrada, mas inválida/fora do intervalo de 10min: %s", linha_hoje)
+                    mensagem = f"Linha de hoje encontrada, mas inválida/fora do intervalo de 10min: {linha_hoje}"
+                    logger.warning("%s", mensagem)
                     status = "falha"
                     # força rerun (dentro de run_once), o main fará retries
                 
             else:
-                logger.debug("Nenhuma marcação encontrada para hoje.")
+                mensagem = "Nenhuma marcação encontrada para hoje."
+                logger.warning("%s", mensagem)
                 status = "falha"
 
         except Exception as e:
             status = "falha"
             linha_hoje = str(e)
+            mensagem = f"Erro ao extrair/imprimir linha de hoje: {e}"
             logger.exception("Erro ao extrair/imprimir linha de hoje: %s", e)
 
         try:
-            reportar_servidor(status, linha_hoje, sucesso=(status == "sucesso"))
+            reportar_servidor(status, mensagem, sucesso=(status == "sucesso"))
         except Exception as e:
             logger.warning("Falha ao reportar status final: %s", e)
 
@@ -227,6 +251,7 @@ def run_once(use_ai=False) -> bool:
 
 
 def main():
+    limpar_ultima_falha()
     try:
         reportar_servidor("executando", None)
     except Exception as e:
@@ -246,7 +271,7 @@ def main():
 
     logger.error("Todas as tentativas (%d) falharam. Marcando como falha definitiva.", attempts)
     try:
-        reportar_servidor("falha", "todas as tentativas falharam", sucesso=False)
+        reportar_servidor("falha", ultima_mensagem_falha() or "todas as tentativas falharam", sucesso=False)
     except Exception:
         pass
 

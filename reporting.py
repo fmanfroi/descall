@@ -4,6 +4,16 @@ from common import logger
 from config import URL_API
 
 _session = requests.Session()
+_ultima_falha = None
+
+
+def limpar_ultima_falha():
+    global _ultima_falha
+    _ultima_falha = None
+
+
+def ultima_mensagem_falha():
+    return _ultima_falha
 
 
 def post_json(session: requests.Session, path: str, payload: dict, timeout: int = 6) -> tuple[bool, object]:
@@ -27,6 +37,9 @@ def post_json(session: requests.Session, path: str, payload: dict, timeout: int 
 
 def reportar_servidor(status, msgsucesso=None, sucesso: bool = None):
     """Reporta o status para o servidor usando o helper `post_json`."""
+    global _ultima_falha
+    if status == "falha" and msgsucesso:
+        _ultima_falha = str(msgsucesso)
     payload = {"status": status}
     for campo, variavel in (("data_execucao", "TAREFA_DATA_EXECUCAO"),
                             ("hora", "TAREFA_HORA"), ("minuto", "TAREFA_MINUTO")):

@@ -4,5 +4,5 @@ selenium
 webdriver-manager
 Pillow
 pytesseract
-google-generativeai
+google-genai
 zhipuai
