@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import SQLModel, Field, Session, select, create_engine
+from sqlalchemy import Column, DateTime
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -37,12 +38,26 @@ class Configuracao(SQLModel, table=True):
 
     # Metadados de Controle
     origem: str
-    data_solicitacao: datetime = Field(default_factory=datetime.now)
+    data_solicitacao: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, nullable=False))
     executou_sucesso: bool = False
 
     # Novos campos para fluxo de status
     status: str = Field(default="criado")
     msgsucesso: Optional[str] = None
+
+
+class TrabalhoAt(SQLModel, table=True):
+    # Tabela separada: create_all também funciona em bancos existentes.
+    data_execucao: str = Field(primary_key=True)
+    hora: str = Field(primary_key=True)
+    minuto: str = Field(primary_key=True)
+    job_id: str
+
+
+class IdentificadorTarefa(BaseModel):
+    data_execucao: str
+    hora: str
+    minuto: str
 
 
 # --- MODELOS PARA A API (INPUT) ---
@@ -61,6 +76,7 @@ class ConfirmacaoExecucao(BaseModel):
     data_execucao: Optional[str] = None
     hora: Optional[str] = None
     minuto: Optional[str] = None
+    job_id: Optional[str] = None
 
 
 class DadosRelatorio(BaseModel):
@@ -124,7 +140,13 @@ def agendar(dados: DadosAgendamento, request: Request):
             & (Configuracao.hora == dados.hora)
             & (Configuracao.minuto == dados.minuto)
         )
-        tarefa = session.exec(stmt).first()
+        tarefa = session.exec(stmt.with_for_update()).first()
+
+        if tarefa and tarefa.status in {"consultado", "agendado", "executando", "cancelamento_pendente"}:
+            raise HTTPException(409, "Cancele a tarefa existente antes de agendar novamente esse horário.")
+        trabalho_antigo = session.get(TrabalhoAt, (dados.data_execucao, dados.hora, dados.minuto))
+        if trabalho_antigo:
+            session.delete(trabalho_antigo)
 
         if not tarefa:            
             xf = request.headers.get("x-forwarded-for")
@@ -173,6 +195,62 @@ def agendar(dados: DadosAgendamento, request: Request):
 
 
 # 2. API para CONSULTAR (O Ubuntu chama essa)
+@app.post("/api/cancelar")
+def cancelar(dados: IdentificadorTarefa):
+    with Session(engine) as session:
+        tarefa = session.exec(select(Configuracao).where(
+            Configuracao.data_para_execucao == dados.data_execucao,
+            Configuracao.hora == dados.hora,
+            Configuracao.minuto == dados.minuto,
+        ).with_for_update()).first()
+        if not tarefa:
+            raise HTTPException(404, "Tarefa não encontrada.")
+        if tarefa.status in {"cancelado", "cancelamento_pendente"}:
+            return to_primitive(tarefa)
+        if tarefa.status not in {"criado", "consultado", "agendado"}:
+            raise HTTPException(409, "A tarefa já iniciou ou terminou e não pode ser cancelada.")
+        # 'consultado' pode estar no meio da criação do trabalho no at.
+        tarefa.status = "cancelado" if tarefa.status == "criado" else "cancelamento_pendente"
+        tarefa.msgsucesso = "Cancelado pelo usuário" if tarefa.status == "cancelado" else "Aguardando remoção no computador executor"
+        tarefa.data_solicitacao = datetime.now()
+        session.add(tarefa)
+        session.commit()
+        return to_primitive(tarefa)
+
+
+@app.get("/api/cancelamentos")
+def cancelamentos():
+    with Session(engine) as session:
+        tarefas = session.exec(select(Configuracao).where(
+            Configuracao.status == "cancelamento_pendente"
+        )).all()
+        resultado = []
+        for tarefa in tarefas:
+            item = to_primitive(tarefa)
+            job = session.get(TrabalhoAt, (tarefa.data_para_execucao, tarefa.hora, tarefa.minuto))
+            item["job_id"] = job.job_id if job else None
+            resultado.append(item)
+        return resultado
+
+
+@app.post("/api/iniciar-execucao")
+def iniciar_execucao(dados: IdentificadorTarefa):
+    with Session(engine) as session:
+        tarefa = session.exec(select(Configuracao).where(
+            Configuracao.data_para_execucao == dados.data_execucao,
+            Configuracao.hora == dados.hora,
+            Configuracao.minuto == dados.minuto,
+        ).with_for_update()).first()
+        if not tarefa:
+            raise HTTPException(404, "Tarefa não encontrada.")
+        if tarefa.status not in {"consultado", "agendado"}:
+            raise HTTPException(409, "Execução bloqueada pelo estado da tarefa.")
+        tarefa.status = "executando"
+        session.add(tarefa)
+        session.commit()
+        return {"status": "executando"}
+
+
 @app.get("/api/consultar")
 def consultar():
     with Session(engine) as session:
@@ -206,6 +284,9 @@ def listar_ultimas(limit: int = 20):
 # 3. API para CONFIRMAR EXECUÇÃO (Atualiza status/msgsucesso)
 @app.post("/api/confirmar-execucao")
 def confirmar(confirm: ConfirmacaoExecucao):
+    campos = (confirm.data_execucao, confirm.hora, confirm.minuto)
+    if any(campo is not None for campo in campos) and not all(campos):
+        raise HTTPException(422, "Informe data, hora e minuto juntos.")
     with Session(engine) as session:
         # Se os campos identificadores foram fornecidos, busca o registro específico
         if confirm.data_execucao and confirm.hora and confirm.minuto:
@@ -214,12 +295,29 @@ def confirmar(confirm: ConfirmacaoExecucao):
                 & (Configuracao.hora == confirm.hora)
                 & (Configuracao.minuto == confirm.minuto)
             )
-            tarefa = session.exec(stmt).first()
+            tarefa = session.exec(stmt.with_for_update()).first()
         else:
             # Fallback para o registro mais recentemente solicitado
             stmt = select(Configuracao).order_by(Configuracao.data_solicitacao.desc())
-            tarefa = session.exec(stmt).first()
+            tarefa = session.exec(stmt.with_for_update()).first()
+        if not tarefa and all(campos):
+            raise HTTPException(404, "Tarefa não encontrada.")
         if tarefa:
+            if confirm.job_id:
+                if not confirm.job_id.isdigit():
+                    raise HTTPException(422, "Identificador do at inválido.")
+                job = TrabalhoAt(data_execucao=tarefa.data_para_execucao, hora=tarefa.hora,
+                                 minuto=tarefa.minuto, job_id=confirm.job_id)
+                session.merge(job)
+            if tarefa.status in {"cancelado", "cancelamento_pendente"} and confirm.status != "cancelado":
+                # Uma confirmação atrasada não pode desfazer o cancelamento.
+                session.commit()
+                return {"status": "recebido", "tarefa": to_primitive(tarefa)}
+            if confirm.status == "cancelado" and tarefa.status not in {"cancelado", "cancelamento_pendente"}:
+                raise HTTPException(409, "Não há cancelamento pendente para esta tarefa.")
+            if tarefa.status == "executando" and confirm.status in {"consultado", "agendado"}:
+                session.commit()
+                return {"status": "recebido", "tarefa": to_primitive(tarefa)}
             # Atualiza status/msg
             if confirm.status:
                 tarefa.status = confirm.status

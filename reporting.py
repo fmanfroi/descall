@@ -1,4 +1,5 @@
 import requests
+import os
 from common import logger
 from config import URL_API
 
@@ -27,6 +28,10 @@ def post_json(session: requests.Session, path: str, payload: dict, timeout: int 
 def reportar_servidor(status, msgsucesso=None, sucesso: bool = None):
     """Reporta o status para o servidor usando o helper `post_json`."""
     payload = {"status": status}
+    for campo, variavel in (("data_execucao", "TAREFA_DATA_EXECUCAO"),
+                            ("hora", "TAREFA_HORA"), ("minuto", "TAREFA_MINUTO")):
+        if os.getenv(variavel):
+            payload[campo] = os.environ[variavel]
     if msgsucesso is not None:
         payload["msgsucesso"] = msgsucesso
     if sucesso is not None:

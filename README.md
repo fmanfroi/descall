@@ -39,3 +39,23 @@ bash -n runtime.sh call-api.sh registrar.sh
 
 A automação de navegador também requer o navegador/driver configurados
 e o executável Tesseract para o OCR local.
+
+## Cancelamento
+
+Use **Cancelar** na lista de tarefas. Tarefas ainda não recebidas pelo
+executor são canceladas imediatamente. As já recebidas mostram
+`cancelamento_pendente` até a próxima execução de `call-api.sh`, que
+remove o trabalho com `atrm` e confirma `cancelado` na API.
+
+Novos agendamentos passam por `executar_tarefa.py`, que consulta a API
+antes de iniciar o registro. Se a tarefa foi cancelada ou a API está
+indisponível, o registro não inicia. Tarefas que já começaram a executar
+não podem ser canceladas.
+
+Atualize a API e o computador executor juntos. A tabela `trabalhoat`
+é criada automaticamente na inicialização, sem alterar a tabela existente.
+Para agendamentos anteriores à atualização, o cliente procura na fila
+do `at` pelo horário e pelo comando exato de `SCRIPT_PONTO`. Se não
+conseguir identificá-los com segurança, mantém o cancelamento pendente
+e registra o motivo no log. A proteção antes da execução aplica-se aos
+novos agendamentos.

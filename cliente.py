@@ -4,6 +4,10 @@ import datetime
 import subprocess
 import os
 import time
+import re
+import shlex
+from pathlib import Path
+import fcntl
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -78,28 +82,90 @@ def validar_horario(data: str, hora: str, minuto: str) -> tuple[bool, str, Optio
         return False, f"dados de horário inválidos: {e}", None
 
 
-def agendar_via_at(hora: str, minuto: str) -> bool:
-    """Agenda o `SCRIPT_ALVO` via `at`. Retorna True se agendado com sucesso."""
+def identificador(dados: dict) -> dict:
+    return {"data_execucao": dados["data_para_execucao"],
+            "hora": dados["hora"], "minuto": dados["minuto"]}
+
+
+def comando_tarefa(dados: dict) -> str:
+    wrapper = Path(__file__).resolve().with_name("executar_tarefa.py")
+    return shlex.join([str(Path(os.sys.executable).absolute()), str(wrapper),
+                       dados["data_para_execucao"], dados["hora"], dados["minuto"]])
+
+
+def agendar_via_at(agendamento_dt: datetime.datetime, dados: dict) -> Optional[str]:
+    """Agenda a execução protegida e retorna o identificador do trabalho."""
     if not SCRIPT_ALVO:
         logger.error("Variável SCRIPT_PONTO não definida")
-        return False
-    if hora is None or minuto is None:
-        logger.error("Hora ou minuto não informados")
-        return False
-
-    comando = f'echo "{SCRIPT_ALVO}" | at {int(hora):02d}:{int(minuto):02d}'
-    logger.info("Executando: %s", comando)
+        return None
+    comando = comando_tarefa(dados)
     try:
-        proc = subprocess.run(comando, shell=True, capture_output=True, text=True)
-        if proc.returncode == 0:
-            logger.info("Agendamento aceito pelo at: %s", (proc.stderr or proc.stdout).strip())
-            return True
-        else:
-            logger.error("Erro ao agendar via at: %s", (proc.stderr or proc.stdout).strip())
-            return False
-    except Exception as e:
-        logger.exception("Erro crítico ao executar at: %s", e)
-        return False
+        proc = subprocess.run(
+            ["at", "-t", agendamento_dt.strftime("%Y%m%d%H%M")],
+            input=comando + "\n", capture_output=True, text=True,
+            env={**os.environ, "LC_ALL": "C"}, timeout=30,
+        )
+        match = re.search(r"\bjob (\d+) at\b", proc.stderr + proc.stdout)
+        if proc.returncode == 0 and match:
+            return match.group(1)
+        logger.error("Erro ao identificar agendamento no at: %s", proc.stderr)
+    except (OSError, subprocess.SubprocessError):
+        logger.exception("Falha ao executar at")
+    return None
+
+
+def trabalhos_at() -> dict[str, datetime.datetime]:
+    proc = subprocess.run(["atq"], capture_output=True, text=True, check=True,
+                          env={**os.environ, "LC_ALL": "C"}, timeout=30)
+    jobs = {}
+    for linha in proc.stdout.splitlines():
+        partes = linha.split()
+        if len(partes) >= 8 and partes[0].isdigit():
+            jobs[partes[0]] = datetime.datetime.strptime(
+                " ".join(partes[1:6]), "%a %b %d %H:%M:%S %Y")
+    return jobs
+
+
+def processar_cancelamentos(session: requests.Session) -> None:
+    """Remove somente os trabalhos associados às tarefas canceladas."""
+    try:
+        resp = session.get(f"{URL}/api/cancelamentos", timeout=30)
+        resp.raise_for_status()
+        pendentes = resp.json()
+        if not pendentes:
+            return
+        jobs = trabalhos_at()
+        for dados in pendentes:
+            job_id = dados.get("job_id")
+            ids = []
+            if job_id:
+                if not str(job_id).isdigit():
+                    logger.error("Identificador do at inválido")
+                    continue
+                if str(job_id) in jobs:
+                    ids = [str(job_id)]
+            else:
+                # Compatibilidade com tarefas criadas antes deste recurso.
+                alvo = datetime.datetime.strptime(
+                    f'{dados["data_para_execucao"]} {dados["hora"]}:{dados["minuto"]}',
+                    "%Y-%m-%d %H:%M")
+                for candidato, horario in jobs.items():
+                    proc = subprocess.run(["at", "-c", candidato], capture_output=True,
+                                          text=True, check=True, timeout=30)
+                    linhas = [l.strip() for l in proc.stdout.splitlines()]
+                    if comando_tarefa(dados) in linhas or (horario == alvo and SCRIPT_ALVO and SCRIPT_ALVO in linhas):
+                        ids.append(candidato)
+                if not ids:
+                    logger.warning("Cancelamento legado pendente: não foi possível localizar o trabalho com segurança")
+                    continue
+            for id_at in ids:
+                subprocess.run(["atrm", id_at], capture_output=True, text=True,
+                               check=True, timeout=30)
+            # Sem job na fila, a execução protegida também bloqueia o cancelamento.
+            reportar_servidor(session, "cancelado", "Cancelamento confirmado no executor",
+                              **identificador(dados))
+    except (requests.RequestException, OSError, subprocess.SubprocessError, ValueError, KeyError):
+        logger.exception("Falha ao processar cancelamentos; será tentado na próxima consulta")
 
 
 def reportar_servidor(session: requests.Session, status: str, msgsucesso: Optional[str] = None, data_execucao: Optional[str] = None, hora: Optional[str] = None, minuto: Optional[str] = None) -> bool:
@@ -117,13 +183,14 @@ def reportar_servidor(session: requests.Session, status: str, msgsucesso: Option
     return ok
 
 
-def main() -> None:
+def executar_cliente() -> None:
     if not URL:
         logger.error("URL_API não definida. Ex: export URL_API=http://127.0.0.1:8000")
         return
 
     session = requests.Session()
 
+    processar_cancelamentos(session)
     dados = fetch_agendamento(session)
     if not dados:
         logger.info("Nenhuma tarefa encontrada ou erro ao consultar")
@@ -134,73 +201,45 @@ def main() -> None:
     minuto = dados.get("minuto")
     ja_executou = dados.get("executou_sucesso")
 
-    # Marca como consultado para indicar que o cliente recebeu a tarefa
-    try:
-        reportar_servidor(session, "consultado", data_execucao=data_agendada, hora=hora, minuto=minuto)
-    except Exception as e:
-        logger.warning("Falha ao marcar como consultado: %s", e)
-
     hoje = datetime.datetime.now().strftime("%Y-%m-%d")
-    logger.info("Agendado: %s | Hoje: %s | Já feito? %s", data_agendada, hoje, ja_executou)
-
     if data_agendada != hoje or ja_executou:
-        logger.info("Não é hora de executar ou já foi feito.")
+        logger.info("Tarefa futura ou já executada; mantendo estado para a próxima consulta")
+        return
+
+    ok, resposta = post_json(session, "/api/confirmar-execucao",
+                             {"status": "consultado", **identificador(dados)})
+    if not ok or not isinstance(resposta, dict) or resposta.get("tarefa", {}).get("status") != "consultado":
+        logger.info("Tarefa não disponível para agendamento")
         return
 
     ok, msg, agendamento_dt = validar_horario(data_agendada, hora, minuto)
-    if not ok:
-        logger.warning("Validação falhou: %s", msg)
-        post_json(session, "/api/agendar", {
-            "hora": hora,
-            "minuto": minuto,
-            "data_execucao": data_agendada,
-            "status": "falha",
-            "msgsucesso": msg
-        })
-        reportar_servidor(session, "falha", msg, data_execucao=data_agendada, hora=hora, minuto=minuto)
+    if not ok or agendamento_dt is None:
+        reportar_servidor(session, "falha", msg or "erro na validação de data",
+                          **identificador(dados))
         return
 
-    if agendamento_dt is None:
-        logger.error("Agendamento inválido e não há data a usar")
-        post_json(session, "/api/agendar", {
-            "hora": hora,
-            "minuto": minuto,
-            "data_execucao": data_agendada,
-            "status": "falha",
-            "msgsucesso": "erro na validação de data"
-        })
-        reportar_servidor(session, "falha", "erro na validação de data", data_execucao=data_agendada, hora=hora, minuto=minuto)
-        return
-
-    logger.info("Agendamento definido para execução: %s", agendamento_dt.isoformat())
-
-    hora_corrigida = f"{agendamento_dt.hour:02d}"
-    minuto_corrigido = f"{agendamento_dt.minute:02d}"
-    data_corrigida = agendamento_dt.strftime("%Y-%m-%d")
-
-    # cria/atualiza registro de agendamento usando o campo `data_execucao` esperado pela API
-    post_json(session, "/api/agendar", {"hora": hora_corrigida, "minuto": minuto_corrigido, "data_execucao": data_corrigida, "status": "criado"})
-
-    agendado_ok = agendar_via_at(hora_corrigida, minuto_corrigido)
-    if agendado_ok:
-        # Atualiza status para `agendado` no endpoint de confirmação (servidor aplica update)
+    job_id = agendar_via_at(agendamento_dt, dados)
+    if job_id:
         post_json(session, "/api/confirmar-execucao", {
-            "status": "agendado",
-            "msgsucesso": "agendado no at",
-            "data_execucao": data_corrigida,
-            "hora": hora_corrigida,
-            "minuto": minuto_corrigido
+            "status": "agendado", "msgsucesso": "agendado no at", "job_id": job_id,
+            **identificador(dados),
         })
-        reportar_servidor(session, "agendado", "agendado no at", data_execucao=data_corrigida, hora=hora_corrigida, minuto=minuto_corrigido)
+        # Cobre cancelamento solicitado durante a criação do trabalho.
+        processar_cancelamentos(session)
     else:
-        post_json(session, "/api/confirmar-execucao", {
-            "status": "falha",
-            "msgsucesso": "erro ao agendar",
-            "data_execucao": data_corrigida,
-            "hora": hora_corrigida,
-            "minuto": minuto_corrigido
-        })
-        reportar_servidor(session, "falha", "erro ao agendar", data_execucao=data_corrigida, hora=hora_corrigida, minuto=minuto_corrigido)
+        reportar_servidor(session, "falha", "erro ao agendar", **identificador(dados))
+
+
+def main() -> None:
+    pasta_log = Path(__file__).resolve().parent / "log"
+    pasta_log.mkdir(exist_ok=True)
+    with (pasta_log / "cliente.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            logger.info("Outra consulta já está em andamento")
+            return
+        executar_cliente()
 
 
 if __name__ == "__main__":
