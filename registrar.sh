@@ -1,13 +1,6 @@
 #!/bin/bash
 
-PROJETO_DIR="/opt/descall"
-ARQUIVO_LOG="$PROJETO_DIR/log/execucao.log"
-if [ -f "$PROJETO_DIR/.env" ]; then
-    export $(grep -v '^#' "$PROJETO_DIR/.env" | xargs)
-else
-    echo "ERRO: Arquivo .env não encontrado!" >> $LOG_FILE
-    exit 1
-fi
+source "$(dirname -- "${BASH_SOURCE[0]}")/runtime.sh"
 
 # --- TRECHO PARA FECHAR FIREFOX ---
 # Define o nome do processo (pode ser firefox ou firefox-bin)
@@ -28,20 +21,15 @@ fi
 # --- FIM DO TRECHO ---
 
 # --- EXECUÇÃO ---
-# Ativa o ambiente virtual (venv) Isso é crucial no Ubuntu 24 para não dar erro de módulo
-source "$DIR_VENV"
-
-# Entra na pasta do projeto
-cd "$PROJETO_DIR"
 # Registra a data e hora de início no log
 echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Iniciando registrar.sh" >> "$ARQUIVO_LOG"
 export DISPLAY=:0
 # Roda o script Python e salva o resultado (erros e prints) no arquivo de log
 
-python3 "$LOGIN_PYTHON" >> "$ARQUIVO_LOG" 2>&1
+"$PYTHON_EXEC" "${LOGIN_PYTHON:-$PROJETO_DIR/login-ocr-ai.py}" >> "$ARQUIVO_LOG" 2>&1
+RESULTADO=$?
 
 # Registra o fim
 echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] Fim registrar.sh" >> "$ARQUIVO_LOG"
 
-# Desativa o ambiente virtual
-deactivate
+exit "$RESULTADO"

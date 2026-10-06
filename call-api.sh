@@ -4,21 +4,7 @@
 # 30,45 18 * * 1-5 /opt/descall/call-api.sh
 
 
-PROJETO_DIR="/opt/descall"
-ARQUIVO_LOG="$PROJETO_DIR/log/execucao.log"
-
-if [ -f "$PROJETO_DIR/.env" ]; then
-    export $(grep -v '^#' "$PROJETO_DIR/.env" | xargs)
-else
-    echo "ERRO: Arquivo .env não encontrado!" >> $LOG_FILE
-    exit 1
-fi
-
-source "$DIR_VENV"
-
-cd "$PROJETO_DIR"
+source "$(dirname -- "${BASH_SOURCE[0]}")/runtime.sh"
 
 # Roda o script Python e salva o resultado (erros e prints) no arquivo de log
-python3 "$SCRIPT_API_CLIENT" >> "$ARQUIVO_LOG" 2>&1
-
-deactivate
+"$PYTHON_EXEC" "${SCRIPT_API_CLIENT:-$PROJETO_DIR/cliente.py}" >> "$ARQUIVO_LOG" 2>&1
