@@ -20,12 +20,16 @@ class RelatorioExecucao(unittest.TestCase):
     def executar_validacao(self, linha, valida=False):
         driver = Mock()
         espera = Mock()
+        driver.current_url = 'https://portal/#/frequencia-ponto'
+        menu, final = Mock(), Mock()
+        menu.get_attribute.return_value = '#/frequencia-ponto'
+        espera.until.side_effect = [Mock(), menu, True, Mock(), final, menu, True]
         with patch.object(login, 'setup_driver', return_value=driver), patch.object(login, 'WebDriverWait', return_value=espera), patch.object(login, 'tirar_print'), patch.object(login.time, 'sleep'), patch.object(login, 'extrair_linha_hoje', side_effect=['linha anterior', linha]), patch.object(login, 'ja_batido_recente', return_value=False), patch.object(login, 'validar_linha_hoje', return_value=valida), patch.object(reporting, 'post_json', return_value=(True, {})) as post:
             resultado = login.run_once()
             payload = post.call_args.args[2]
         driver.quit.assert_called_once()
         # Modo de teste mantido: o botão final não é clicado.
-        espera.until.return_value.click.assert_not_called()
+        final.click.assert_not_called()
         return resultado, payload
 
     def test_linha_invalida_envia_mesma_mensagem_do_log(self):
@@ -73,6 +77,90 @@ class RelatorioExecucao(unittest.TestCase):
         driver = Mock()
         driver.find_elements.return_value = []
         self.assertFalse(login.elemento_clicavel(driver, '//a'))
+
+
+class NavegacaoFrequencia(unittest.TestCase):
+    def test_inicio_com_link_registrar_nao_confirma_navegacao(self):
+        driver = Mock()
+        driver.current_url = 'https://portal/SIGRHNovoPortal/#/inicio'
+        self.assertFalse(login.tela_frequencia_carregada(driver))
+        driver.find_elements.assert_not_called()
+
+    def test_rota_certa_sem_conteudo_ainda_nao_carregou(self):
+        driver = Mock()
+        driver.current_url = 'https://portal/SIGRHNovoPortal/#/frequencia-ponto'
+        driver.find_elements.return_value = []
+        self.assertFalse(login.tela_frequencia_carregada(driver))
+
+    def test_rota_certa_com_tabela_visivel_confirma(self):
+        driver = Mock()
+        driver.current_url = 'https://portal/SIGRHNovoPortal/#/frequencia-ponto'
+        linha = Mock()
+        linha.is_displayed.return_value = True
+        driver.find_elements.return_value = [linha]
+        self.assertTrue(login.tela_frequencia_carregada(driver))
+
+    def test_rota_certa_com_registrar_visivel_confirma(self):
+        driver = Mock()
+        driver.current_url = 'https://portal/SIGRHNovoPortal/#/frequencia-ponto'
+        button = Mock()
+        button.is_displayed.return_value = True
+        button.is_enabled.return_value = True
+        driver.find_elements.side_effect = [[], [button]]
+        self.assertTrue(login.tela_frequencia_carregada(driver))
+
+    def preparar(self):
+        driver, wait, menu = Mock(), Mock(), Mock()
+        driver.current_url = 'https://portal/SIGRHNovoPortal/#/inicio'
+        menu.get_attribute.return_value = '#/frequencia-ponto'
+        return driver, wait, menu
+
+    def test_clique_sem_carregamento_relata_erro_especifico(self):
+        driver, wait, menu = self.preparar()
+        wait.until.side_effect = [menu, login.TimeoutException(), menu, login.TimeoutException(), login.TimeoutException()]
+        with patch.object(login, 'tirar_print'), patch.object(login, 'Path'), self.assertRaisesRegex(login.TimeoutException, 'Controle de Frequência não carregou'):
+            login.acessar_frequencia(driver, wait)
+        driver.get.assert_called_once_with('https://portal/SIGRHNovoPortal/#/frequencia-ponto')
+        self.assertIs(wait.until.call_args.args[0], login.tela_frequencia_carregada)
+
+    def test_clique_normal_sem_necessidade_de_fallback(self):
+        driver, wait, menu = self.preparar()
+        wait.until.side_effect = [menu, True]
+        login.acessar_frequencia(driver, wait)
+        menu.click.assert_called_once()
+        driver.get.assert_not_called()
+
+    def test_fallback_usa_href_preservando_caminho_do_portal(self):
+        driver, wait, menu = self.preparar()
+        wait.until.side_effect = [menu, login.TimeoutException(), menu, login.TimeoutException(), True]
+        login.acessar_frequencia(driver, wait)
+        driver.get.assert_called_once_with('https://portal/SIGRHNovoPortal/#/frequencia-ponto')
+
+    def test_segundo_clique_rebusca_menu_e_navega_sem_abrir_url(self):
+        driver, wait, menu = self.preparar()
+        menu_atualizado = Mock()
+        wait.until.side_effect = [menu, login.TimeoutException(), menu_atualizado, True]
+        login.acessar_frequencia(driver, wait)
+        menu.click.assert_called_once()
+        driver.execute_script.assert_any_call("arguments[0].click();", menu_atualizado)
+        driver.get.assert_not_called()
+        driver.refresh.assert_not_called()
+
+    def test_refresh_quando_rota_ja_mudou_mas_conteudo_nao_carregou(self):
+        driver, wait, menu = self.preparar()
+        driver.current_url = 'https://portal/SIGRHNovoPortal/#/frequencia-ponto'
+        wait.until.side_effect = [menu, login.TimeoutException(), True]
+        login.acessar_frequencia(driver, wait)
+        driver.refresh.assert_called_once()
+        driver.get.assert_not_called()
+
+    def test_rota_com_parametros_e_tabela_visivel(self):
+        driver = Mock()
+        driver.current_url = 'https://portal/#/frequencia-ponto?origem=menu'
+        linha = Mock()
+        linha.is_displayed.return_value = True
+        driver.find_elements.return_value = [linha]
+        self.assertTrue(login.tela_frequencia_carregada(driver))
 
 
 class ValidacaoHorario(unittest.TestCase):

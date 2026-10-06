@@ -23,7 +23,9 @@ XPATHS = {
     "input_pass": "//input[@type='password']",
     "input_captcha": "//input[contains(@formcontrolname, 'captcha') or contains(@placeholder, 'Texto da imagem (CAPTCHA)')]",
     "btn_login": "//button[normalize-space()='ACESSAR']",
-    "menu_frequencia": "//a[contains(@href, '#/frequencia-ponto') and not(contains(@href, '#/frequencia-ponto/'))]",
+    # Evita os atalhos de relógio do cabeçalho, que usam a mesma rota.
+    #"menu_frequencia": "//a[@aria-label='Controle de Frequência' or .//span[normalize-space()='Controle de Frequência'] or normalize-space()='Controle de Frequência']",
+    "menu_frequencia": "//a[contains(@href, 'frequencia-ponto')] | //span[contains(text(), 'Controle de Frequência')]",
     # O item de "Registrar" pode ser um <a> ou um <button> dependendo da versão do UI.
     # Aceita tanto o link antigo quanto o botão verde visível na página.
     "submenu_registrar": "//a[@href='#/frequencia-ponto/registrar-ponto'] | //button[contains(normalize-space(.), 'Registrar Frequência')]",

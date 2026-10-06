@@ -2,10 +2,11 @@ import time
 from pathlib import Path
 import requests
 import base64
+from urllib.parse import urlsplit, urljoin
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException
 from selenium.webdriver.support import expected_conditions as EC
 
 from common import logger
@@ -26,6 +27,62 @@ def elemento_clicavel(driver, xpath):
         except StaleElementReferenceException:
             continue
     return False
+
+
+def tela_frequencia_carregada(driver):
+    if urlsplit(driver.current_url).fragment.split("?")[0].strip("/") != "frequencia-ponto":
+        return False
+    for linha in driver.find_elements(By.CSS_SELECTOR, "table.table tbody tr"):
+        try:
+            if linha.is_displayed():
+                return True
+        except StaleElementReferenceException:
+            continue
+    return bool(elemento_clicavel(driver, XPATHS["submenu_registrar"]))
+
+
+def acessar_frequencia(driver, wait):
+    menu = wait.until(lambda d: elemento_clicavel(d, XPATHS["menu_frequencia"]))
+    destino = urljoin(driver.current_url, menu.get_attribute("href") or "")
+    url_atual, url_destino = urlsplit(driver.current_url), urlsplit(destino)
+    if (url_destino.netloc != url_atual.netloc or
+            url_destino.fragment.split("?")[0].strip("/") != "frequencia-ponto"):
+        raise ValueError("O link Controle de Frequência não aponta para a rota esperada")
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", menu)
+    try:
+        menu.click()
+        wait.until(tela_frequencia_carregada)
+    except (TimeoutException, ElementClickInterceptedException, ElementNotInteractableException):
+        # Após o login o menu pode aparecer antes de a navegação estar pronta.
+        # Rebusca o elemento, pois o Angular pode reconstruir a barra lateral.
+        if urlsplit(driver.current_url).fragment.split("?")[0].strip("/") != "frequencia-ponto":
+            logger.warning("Primeiro clique não navegou; tentando novamente o menu Controle de Frequência")
+            try:
+                menu = wait.until(lambda d: elemento_clicavel(d, XPATHS["menu_frequencia"]))
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", menu)
+                driver.execute_script("arguments[0].click();", menu)
+                wait.until(tela_frequencia_carregada)
+                logger.info("Controle de Frequência carregado pelo segundo clique no menu: %s", driver.current_url)
+                return
+            except (TimeoutException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException):
+                logger.warning("Segunda tentativa de clique não carregou Controle de Frequência")
+        logger.warning("Clique no menu não carregou Controle de Frequência; abrindo a rota do link: %s", destino)
+        if driver.current_url == destino:
+            driver.refresh()
+        else:
+            driver.get(destino)
+        try:
+            wait.until(tela_frequencia_carregada)
+        except TimeoutException as erro:
+            tirar_print(driver, "xx_frequencia_timeout")
+            log_dir = Path("log")
+            log_dir.mkdir(exist_ok=True)
+            try:
+                (log_dir / "page_frequencia_timeout.html").write_text(driver.page_source, encoding="utf-8")
+            except Exception:
+                logger.exception("Falha ao salvar diagnóstico da navegação")
+            raise TimeoutException(f"Controle de Frequência não carregou após abrir a rota do menu; URL atual: {driver.current_url}") from erro
+    logger.info("Menu 'Controle de Frequência' acessado e tela carregada: %s", driver.current_url)
 
 
 def run_once(use_ai=False) -> bool:
@@ -120,12 +177,7 @@ def run_once(use_ai=False) -> bool:
                 return False
 
         # 5. Navegação: Controle de Frequência
-        menu = wait.until(lambda d: elemento_clicavel(d, XPATHS["menu_frequencia"]))
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", menu)
-        time.sleep(1)
-        driver.execute_script("arguments[0].click();", menu)
-        logger.info("Menu 'Controle de Frequência' acessado.")
-        time.sleep(5)
+        acessar_frequencia(driver, wait)
 
         # Verifica se já bateu ponto no intervalo de 1 hora antes de tentar registrar novamente
         linha_hoje_previa = extrair_linha_hoje(driver)
@@ -192,12 +244,7 @@ def run_once(use_ai=False) -> bool:
         linha_hoje = None
         mensagem = None
         try:
-            menu = wait.until(lambda d: elemento_clicavel(d, XPATHS["menu_frequencia"]))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", menu)
-            time.sleep(1)
-            driver.execute_script("arguments[0].click();", menu)
-            logger.info("Menu 'Controle de Frequência' acessado.")
-            time.sleep(10)
+            acessar_frequencia(driver, wait)
 
             linha_hoje = extrair_linha_hoje(driver)
             if linha_hoje:

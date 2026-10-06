@@ -107,6 +107,9 @@ def agendar_via_at(agendamento_dt: datetime.datetime, dados: dict) -> Optional[s
         )
         match = re.search(r"\bjob (\d+) at\b", proc.stderr + proc.stdout)
         if proc.returncode == 0 and match:
+            logger.info("Tarefa %s %s:%s agendada no at: job=%s, execução=%s",
+                        dados["data_para_execucao"], dados["hora"], dados["minuto"],
+                        match.group(1), agendamento_dt.isoformat())
             return match.group(1)
         logger.error("Erro ao identificar agendamento no at: %s", proc.stderr)
     except (OSError, subprocess.SubprocessError):
@@ -200,6 +203,8 @@ def executar_cliente() -> None:
     hora = dados.get("hora")
     minuto = dados.get("minuto")
     ja_executou = dados.get("executou_sucesso")
+    logger.info("Tarefa recebida da API: data=%s horário=%s:%s status=%s",
+                data_agendada, hora, minuto, dados.get("status"))
 
     hoje = datetime.datetime.now().strftime("%Y-%m-%d")
     if data_agendada != hoje or ja_executou:
@@ -239,7 +244,11 @@ def main() -> None:
         except BlockingIOError:
             logger.info("Outra consulta já está em andamento")
             return
-        executar_cliente()
+        logger.info("Iniciando consulta do cliente API")
+        try:
+            executar_cliente()
+        finally:
+            logger.info("Finalizando consulta do cliente API")
 
 
 if __name__ == "__main__":
